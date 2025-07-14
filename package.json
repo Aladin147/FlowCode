@@ -1,0 +1,124 @@
+{
+  "name": "flowcode",
+  "displayName": "FlowCode",
+  "description": "AI-powered coding assistant with built-in quality gates",
+  "version": "0.1.0-alpha",
+  "publisher": "flowcode-team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aladin147/FlowCode.git"
+  },
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "ai",
+    "assistant",
+    "code-quality",
+    "linting",
+    "testing"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flowcode.initialize",
+        "title": "Initialize FlowCode",
+        "category": "FlowCode"
+      },
+      {
+        "command": "flowcode.elevateToArchitect",
+        "title": "Elevate to Architect",
+        "category": "FlowCode"
+      },
+      {
+        "command": "flowcode.hotfix",
+        "title": "Create Hotfix",
+        "category": "FlowCode"
+      },
+      {
+        "command": "flowcode.showGraph",
+        "title": "Show Code Graph",
+        "category": "FlowCode"
+      },
+      {
+        "command": "flowcode.configureApiKey",
+        "title": "Configure API Key",
+        "category": "FlowCode"
+      }
+    ],
+    "configuration": {
+      "title": "FlowCode",
+      "properties": {
+        "flowcode.apiProvider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic"
+          ],
+          "default": "openai",
+          "description": "AI provider for cloud-based assistance"
+        },
+        "flowcode.apiKey": {
+          "type": "string",
+          "description": "API key for the selected provider"
+        },
+        "flowcode.maxTokens": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum tokens for AI responses"
+        },
+        "flowcode.enableCompanionGuard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time quality checks"
+        },
+        "flowcode.enableFinalGuard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable pre-push quality gates"
+        }
+      }
+    },
+    "statusBarItem": {
+      "id": "flowcode.status",
+      "alignment": "right",
+      "priority": 100
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "echo \"Tests not implemented yet - extension ready for manual testing\"",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.7",
+    "@types/vscode": "^1.102.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "axios": "^1.6.5",
+    "ignore": "^5.3.1",
+    "semver": "^7.5.4",
+    "tree-sitter": "^0.20.4",
+    "tree-sitter-python": "^0.20.4",
+    "tree-sitter-typescript": "^0.20.3"
+  }
+}

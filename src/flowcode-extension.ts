@@ -18,6 +18,7 @@ import { ArchitectCommands } from './commands/architect-commands';
 import { SecurityCommands } from './commands/security-commands';
 import { GitHookManager } from './services/git-hook-manager';
 import { ChatInterface } from './ui/chat-interface';
+import { MonitoringDashboard } from './ui/monitoring-dashboard';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -38,6 +39,7 @@ export class FlowCodeExtension {
     private securityCommands: SecurityCommands;
     private gitHookManager: GitHookManager;
     private chatInterface: ChatInterface;
+    private monitoringDashboard: MonitoringDashboard;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
     private _isActive: boolean = false;
 
@@ -66,6 +68,14 @@ export class FlowCodeExtension {
             this.hotfixService,
             this.configManager
         );
+
+        this.monitoringDashboard = new MonitoringDashboard(
+            this.telemetryService,
+            this.companionGuard,
+            this.hotfixService,
+            this.graphService,
+            this.chatInterface
+        );
     }
 
     public async activate(): Promise<void> {
@@ -91,6 +101,7 @@ export class FlowCodeExtension {
         this._isActive = false;
         this.companionGuard.dispose();
         this.statusBarManager.dispose();
+        this.monitoringDashboard.dispose();
         this.contextLogger.info('FlowCode extension deactivated');
     }
 
@@ -545,6 +556,24 @@ export class FlowCodeExtension {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Security audit failed: ${message}`);
+        }
+    }
+
+    public async showMonitoringDashboard(): Promise<void> {
+        try {
+            await this.monitoringDashboard.show();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to show monitoring dashboard: ${message}`);
+        }
+    }
+
+    public async showChatInterface(): Promise<void> {
+        try {
+            await this.chatInterface.show();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to show chat interface: ${message}`);
         }
     }
 

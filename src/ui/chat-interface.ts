@@ -41,6 +41,43 @@ export interface CodeDiff {
     oldContent: string;
     newContent: string;
     applied?: boolean;
+    diffType: 'create' | 'modify' | 'delete';
+    hunks: DiffHunk[];
+    securityImpact?: SecurityImpact;
+    qualityImpact?: QualityImpact;
+    approvalStatus?: 'pending' | 'approved' | 'rejected';
+}
+
+export interface DiffHunk {
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: DiffLine[];
+    context: string;
+}
+
+export interface DiffLine {
+    type: 'add' | 'remove' | 'context';
+    content: string;
+    lineNumber: number;
+    oldLineNumber?: number;
+    newLineNumber?: number;
+    hasSecurityIssue?: boolean;
+    hasQualityIssue?: boolean;
+}
+
+export interface SecurityImpact {
+    riskLevel: 'low' | 'medium' | 'high' | 'critical';
+    issues: string[];
+    recommendations: string[];
+}
+
+export interface QualityImpact {
+    complexityChange: number;
+    maintainabilityScore: number;
+    issues: string[];
+    improvements: string[];
 }
 
 export interface ChatThread {
@@ -168,6 +205,18 @@ export class ChatInterface {
                 await this.handleApplyDiff(message.diffId);
                 break;
 
+            case 'approveDiff':
+                await this.handleDiffApproval(message.diffId, true);
+                break;
+
+            case 'rejectDiff':
+                await this.handleDiffApproval(message.diffId, false);
+                break;
+
+            case 'previewDiff':
+                await this.handleDiffPreview(message.diffId);
+                break;
+
             case 'showDependencies':
                 await this.handleShowDependencies(message.symbolName, message.filePath);
                 break;
@@ -194,6 +243,18 @@ export class ChatInterface {
 
             case 'getProactiveDebtSuggestions':
                 await this.handleProactiveDebtSuggestions();
+                break;
+
+            case 'showSampleDiff':
+                await this.createSampleDiff();
+                break;
+
+            case 'showGraphPopover':
+                await this.handleShowGraphPopover(message.symbolName, message.filePath);
+                break;
+
+            case 'exploreGraph':
+                await this.handleExploreGraph(message.symbolName, message.filePath, message.depth);
                 break;
         }
     }
@@ -359,12 +420,13 @@ export class ChatInterface {
     /**
      * Add system message
      */
-    private async addSystemMessage(content: string): Promise<void> {
+    private async addSystemMessage(content: string, metadata?: any): Promise<void> {
         const systemMessage: ChatMessage = {
             id: this.generateMessageId(),
             type: 'system',
             content,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            metadata: metadata || {}
         };
 
         this.messages.push(systemMessage);
@@ -592,7 +654,157 @@ export class ChatInterface {
      * Handle applying code diffs
      */
     private async handleApplyDiff(diffId: string): Promise<void> {
-        this.contextLogger.info(`Applying diff: ${diffId}`);
+        try {
+            // Find the diff in current messages
+            const diff = this.findDiffById(diffId);
+            if (!diff) {
+                await this.addSystemMessage(`Diff ${diffId} not found.`);
+                return;
+            }
+
+            // Check if diff requires approval
+            if (diff.approvalStatus === 'pending') {
+                await this.addSystemMessage(`⚠️ Diff requires approval before applying. Please approve or reject first.`);
+                return;
+            }
+
+            if (diff.approvalStatus === 'rejected') {
+                await this.addSystemMessage(`❌ Cannot apply rejected diff.`);
+                return;
+            }
+
+            // Apply the diff
+            const success = await this.applyDiffToFile(diff);
+            if (success) {
+                diff.applied = true;
+                await this.addSystemMessage(`✅ Successfully applied diff to ${diff.filePath}`);
+                await this.updateWebviewContent();
+            } else {
+                await this.addSystemMessage(`❌ Failed to apply diff to ${diff.filePath}`);
+            }
+
+        } catch (error) {
+            this.contextLogger.error('Failed to apply diff', error as Error);
+            await this.addSystemMessage(`Failed to apply diff: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle diff approval/rejection
+     */
+    private async handleDiffApproval(diffId: string, approved: boolean): Promise<void> {
+        try {
+            const diff = this.findDiffById(diffId);
+            if (!diff) {
+                await this.addSystemMessage(`Diff ${diffId} not found.`);
+                return;
+            }
+
+            diff.approvalStatus = approved ? 'approved' : 'rejected';
+
+            const status = approved ? '✅ approved' : '❌ rejected';
+            await this.addSystemMessage(`Diff for ${diff.filePath} has been ${status}.`);
+            await this.updateWebviewContent();
+
+        } catch (error) {
+            this.contextLogger.error('Failed to handle diff approval', error as Error);
+            await this.addSystemMessage(`Failed to handle diff approval: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle diff preview
+     */
+    private async handleDiffPreview(diffId: string): Promise<void> {
+        try {
+            const diff = this.findDiffById(diffId);
+            if (!diff) {
+                await this.addSystemMessage(`Diff ${diffId} not found.`);
+                return;
+            }
+
+            // Open diff preview in VS Code
+            await this.showDiffPreview(diff);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show diff preview', error as Error);
+            await this.addSystemMessage(`Failed to show diff preview: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Find diff by ID in current messages
+     */
+    private findDiffById(diffId: string): CodeDiff | undefined {
+        for (const message of this.messages) {
+            if (message.metadata?.diffs) {
+                const diff = message.metadata.diffs.find((d: CodeDiff) => d.id === diffId);
+                if (diff) return diff;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Apply diff to file
+     */
+    private async applyDiffToFile(diff: CodeDiff): Promise<boolean> {
+        try {
+            const document = await vscode.workspace.openTextDocument(diff.filePath);
+            const edit = new vscode.WorkspaceEdit();
+
+            if (diff.diffType === 'create') {
+                // Create new file
+                edit.createFile(vscode.Uri.file(diff.filePath));
+                edit.insert(vscode.Uri.file(diff.filePath), new vscode.Position(0, 0), diff.newContent);
+            } else if (diff.diffType === 'delete') {
+                // Delete file
+                edit.deleteFile(vscode.Uri.file(diff.filePath));
+            } else {
+                // Modify existing file
+                const fullRange = new vscode.Range(
+                    document.positionAt(0),
+                    document.positionAt(document.getText().length)
+                );
+                edit.replace(document.uri, fullRange, diff.newContent);
+            }
+
+            return await vscode.workspace.applyEdit(edit);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to apply diff to file', error as Error);
+            return false;
+        }
+    }
+
+    /**
+     * Show diff preview in VS Code
+     */
+    private async showDiffPreview(diff: CodeDiff): Promise<void> {
+        try {
+            // Create temporary files for diff comparison
+            const tempDir = require('os').tmpdir();
+            const path = require('path');
+            const fs = require('fs');
+
+            const oldFile = path.join(tempDir, `${diff.id}_old.${path.extname(diff.filePath)}`);
+            const newFile = path.join(tempDir, `${diff.id}_new.${path.extname(diff.filePath)}`);
+
+            fs.writeFileSync(oldFile, diff.oldContent);
+            fs.writeFileSync(newFile, diff.newContent);
+
+            // Open diff view
+            await vscode.commands.executeCommand(
+                'vscode.diff',
+                vscode.Uri.file(oldFile),
+                vscode.Uri.file(newFile),
+                `${path.basename(diff.filePath)} (Diff Preview)`
+            );
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show diff preview', error as Error);
+            throw error;
+        }
     }
 
     /**
@@ -1026,6 +1238,306 @@ export class ChatInterface {
     }
 
     /**
+     * Handle show graph popover request
+     */
+    private async handleShowGraphPopover(symbolName?: string, filePath?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to show graph for.');
+                return;
+            }
+
+            if (!symbolName) {
+                const symbols = await this.getSymbolsFromFile(activeFile);
+                if (symbols.length === 0) {
+                    await this.addSystemMessage('No symbols found in the current file.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    symbols.map(s => ({ label: s.name, description: s.type, detail: s.signature })),
+                    { placeHolder: 'Select a symbol to explore graph' }
+                );
+
+                if (!selected) return;
+                symbolName = selected.label;
+            }
+
+            // Get comprehensive graph data
+            const graphData = await this.generateInteractiveGraphData(symbolName, activeFile);
+
+            // Create interactive graph visualization
+            await this.addSystemMessage(`🕸️ **Interactive Graph for \`${symbolName}\`**`, {
+                graphData,
+                interactiveGraph: true
+            });
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show graph popover', error as Error);
+            await this.addSystemMessage(`Failed to show graph popover: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle explore graph request
+     */
+    private async handleExploreGraph(symbolName?: string, filePath?: string, depth: number = 2): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile || !symbolName) {
+                await this.addSystemMessage('Invalid parameters for graph exploration.');
+                return;
+            }
+
+            // Get deep graph exploration data
+            const explorationData = await this.generateGraphExplorationData(symbolName, activeFile, depth);
+
+            // Create exploration report
+            let report = `🔍 **Graph Exploration: \`${symbolName}\` (Depth: ${depth})**\n\n`;
+
+            if (explorationData.paths.length > 0) {
+                report += `**Dependency Paths Found:**\n`;
+                explorationData.paths.forEach((path: any, index: number) => {
+                    report += `\n**Path ${index + 1}:** ${path.description}\n`;
+                    report += `${path.nodes.map((node: any) => `\`${node.name}\``).join(' → ')}\n`;
+                    if (path.riskLevel !== 'low') {
+                        report += `⚠️ *Risk Level: ${path.riskLevel}*\n`;
+                    }
+                });
+                report += '\n';
+            }
+
+            if (explorationData.hotspots.length > 0) {
+                report += `**🔥 Hotspots (High Connectivity):**\n`;
+                explorationData.hotspots.forEach((hotspot: any) => {
+                    report += `- \`${hotspot.name}\` (${hotspot.connections} connections) in ${hotspot.file}\n`;
+                });
+                report += '\n';
+            }
+
+            if (explorationData.suggestions.length > 0) {
+                report += `**💡 Architectural Suggestions:**\n`;
+                explorationData.suggestions.forEach((suggestion: string) => {
+                    report += `- ${suggestion}\n`;
+                });
+            }
+
+            await this.addSystemMessage(report, {
+                explorationData,
+                graphExploration: true
+            });
+
+        } catch (error) {
+            this.contextLogger.error('Failed to explore graph', error as Error);
+            await this.addSystemMessage(`Failed to explore graph: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Generate interactive graph data
+     */
+    private async generateInteractiveGraphData(symbolName: string, filePath: string): Promise<any> {
+        try {
+            const dependencies = await this.graphService.getDependencies(symbolName, filePath);
+            const impact = await this.graphService.analyzeChangeImpact(symbolName, filePath);
+
+            return {
+                centerNode: {
+                    name: symbolName,
+                    file: filePath,
+                    type: 'center'
+                },
+                dependencies: dependencies.dependencies.map(dep => ({
+                    ...dep,
+                    relationship: 'depends_on'
+                })),
+                dependents: dependencies.dependents.map(dep => ({
+                    ...dep,
+                    relationship: 'depended_by'
+                })),
+                impactAnalysis: {
+                    directImpact: impact.directImpact.length,
+                    indirectImpact: impact.indirectImpact.length,
+                    riskLevel: impact.riskLevel,
+                    affectedFiles: impact.affectedFiles.length
+                },
+                interactionHints: [
+                    'Click on nodes to explore their dependencies',
+                    'Hover for detailed information',
+                    'Use the depth slider to control exploration level'
+                ]
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to generate interactive graph data', error as Error);
+            return { error: 'Failed to generate graph data' };
+        }
+    }
+
+    /**
+     * Generate graph exploration data
+     */
+    private async generateGraphExplorationData(symbolName: string, filePath: string, depth: number): Promise<any> {
+        try {
+            const paths: any[] = [];
+            const hotspots: any[] = [];
+            const suggestions: string[] = [];
+
+            // Explore dependency paths
+            await this.explorePathsRecursively(symbolName, filePath, depth, [], paths);
+
+            // Identify hotspots (nodes with many connections)
+            const allNodes = new Map<string, { name: string, file: string, connections: number }>();
+
+            for (const path of paths) {
+                for (const node of path.nodes) {
+                    const key = `${node.name}:${node.file}`;
+                    if (allNodes.has(key)) {
+                        allNodes.get(key)!.connections++;
+                    } else {
+                        allNodes.set(key, { name: node.name, file: node.file, connections: 1 });
+                    }
+                }
+            }
+
+            // Find hotspots (nodes with > 3 connections)
+            for (const [key, node] of allNodes.entries()) {
+                if (node.connections > 3) {
+                    hotspots.push(node);
+                }
+            }
+
+            // Generate suggestions
+            if (hotspots.length > 0) {
+                suggestions.push(`Consider refactoring high-connectivity nodes to reduce coupling`);
+            }
+
+            if (paths.some(p => p.riskLevel === 'high')) {
+                suggestions.push(`High-risk dependency paths detected - review before making changes`);
+            }
+
+            if (paths.length > 10) {
+                suggestions.push(`Complex dependency network - consider architectural simplification`);
+            }
+
+            return {
+                paths: paths.slice(0, 10), // Limit to 10 paths for readability
+                hotspots: hotspots.slice(0, 5), // Top 5 hotspots
+                suggestions,
+                totalPaths: paths.length,
+                explorationDepth: depth
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to generate graph exploration data', error as Error);
+            return { paths: [], hotspots: [], suggestions: ['Failed to explore graph'], totalPaths: 0, explorationDepth: depth };
+        }
+    }
+
+    /**
+     * Explore dependency paths recursively
+     */
+    private async explorePathsRecursively(
+        symbolName: string,
+        filePath: string,
+        remainingDepth: number,
+        currentPath: any[],
+        allPaths: any[]
+    ): Promise<void> {
+        if (remainingDepth <= 0) return;
+
+        try {
+            const dependencies = await this.graphService.getDependencies(symbolName, filePath);
+
+            for (const dep of dependencies.dependencies.slice(0, 3)) { // Limit to 3 per level
+                const newPath = [...currentPath, { name: symbolName, file: filePath }, { name: dep.name, file: dep.file }];
+
+                // Determine risk level based on path characteristics
+                const riskLevel = this.calculatePathRisk(newPath);
+
+                allPaths.push({
+                    nodes: newPath,
+                    description: `${symbolName} → ${dep.name}`,
+                    riskLevel,
+                    depth: currentPath.length + 1
+                });
+
+                // Continue exploration
+                await this.explorePathsRecursively(dep.name, dep.file, remainingDepth - 1, newPath, allPaths);
+            }
+
+        } catch (error) {
+            // Continue exploration even if one path fails
+            this.contextLogger.warn('Failed to explore path', error as Error);
+        }
+    }
+
+    /**
+     * Calculate risk level for a dependency path
+     */
+    private calculatePathRisk(path: any[]): 'low' | 'medium' | 'high' {
+        // Simple heuristics for risk calculation
+        if (path.length > 5) return 'high'; // Long dependency chains are risky
+        if (path.some(node => node.file.includes('node_modules'))) return 'medium'; // External dependencies
+        if (path.length > 3) return 'medium'; // Medium length chains
+        return 'low';
+    }
+
+    /**
+     * Create a sample diff for demonstration
+     */
+    public async createSampleDiff(): Promise<void> {
+        const sampleDiff: CodeDiff = {
+            id: `diff_${Date.now()}`,
+            filePath: 'src/example.ts',
+            diffType: 'modify',
+            oldContent: `function calculateTotal(items: Item[]): number {
+    let total = 0;
+    for (let i = 0; i < items.length; i++) {
+        total += items[i].price;
+    }
+    return total;
+}`,
+            newContent: `function calculateTotal(items: Item[]): number {
+    return items.reduce((total, item) => total + item.price, 0);
+}`,
+            hunks: [{
+                oldStart: 1,
+                oldLines: 6,
+                newStart: 1,
+                newLines: 3,
+                context: 'calculateTotal function',
+                lines: [
+                    { type: 'remove', content: '    let total = 0;', lineNumber: 2, oldLineNumber: 2 },
+                    { type: 'remove', content: '    for (let i = 0; i < items.length; i++) {', lineNumber: 3, oldLineNumber: 3 },
+                    { type: 'remove', content: '        total += items[i].price;', lineNumber: 4, oldLineNumber: 4 },
+                    { type: 'remove', content: '    }', lineNumber: 5, oldLineNumber: 5 },
+                    { type: 'remove', content: '    return total;', lineNumber: 6, oldLineNumber: 6 },
+                    { type: 'add', content: '    return items.reduce((total, item) => total + item.price, 0);', lineNumber: 2, newLineNumber: 2 }
+                ]
+            }],
+            securityImpact: {
+                riskLevel: 'low',
+                issues: [],
+                recommendations: ['Code change looks safe - using built-in array methods']
+            },
+            qualityImpact: {
+                complexityChange: -3,
+                maintainabilityScore: 8.5,
+                issues: [],
+                improvements: ['Reduced cyclomatic complexity', 'More functional programming style', 'Fewer lines of code']
+            },
+            approvalStatus: 'pending'
+        };
+
+        // Add sample diff to a system message
+        await this.addSystemMessage('Here\'s a sample code change for review:', {
+            diffs: [sampleDiff]
+        });
+    }
+
+    /**
      * Get symbols from a file
      */
     private async getSymbolsFromFile(filePath: string): Promise<Array<{name: string, type: string, signature?: string}>> {
@@ -1201,6 +1713,8 @@ export class ChatInterface {
                 <button onclick="showDebtSummary()">💳 Debt Summary</button>
                 <button onclick="analyzeFileDebt()">🔍 File Debt</button>
                 <button onclick="getProactiveDebtSuggestions()">🎯 Debt Insights</button>
+                <button onclick="showSampleDiff()">📝 Sample Diff</button>
+                <button onclick="showGraphPopover()">🕸️ Graph Explorer</button>
                 <button onclick="elevateToArchitect()" class="architect-button">🚀 Elevate to Architect</button>
             </div>
             <div class="input-wrapper">
@@ -1492,6 +2006,633 @@ export class ChatInterface {
                 text-align: center;
                 padding: 4px;
             }
+
+            /* Diff Visualization Styles */
+            .diff-visualizations {
+                margin: 10px 0;
+                padding: 12px;
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 6px;
+                font-size: 12px;
+            }
+
+            .diff-visualizations h4 {
+                margin: 0 0 12px 0;
+                color: var(--vscode-foreground);
+                font-size: 13px;
+            }
+
+            .diff-container {
+                margin: 8px 0;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 6px;
+                overflow: hidden;
+                background: var(--vscode-input-background);
+            }
+
+            .diff-container.pending {
+                border-left: 4px solid var(--vscode-notificationsWarningIcon-foreground);
+            }
+
+            .diff-container.approved {
+                border-left: 4px solid var(--vscode-testing-iconPassed);
+            }
+
+            .diff-container.rejected {
+                border-left: 4px solid var(--vscode-testing-iconFailed);
+            }
+
+            .diff-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 12px;
+                background: var(--vscode-titleBar-inactiveBackground);
+                border-bottom: 1px solid var(--vscode-panel-border);
+            }
+
+            .diff-file-info {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .diff-type-icon {
+                font-size: 14px;
+            }
+
+            .diff-filename {
+                font-weight: 600;
+                color: var(--vscode-foreground);
+            }
+
+            .diff-path {
+                color: var(--vscode-descriptionForeground);
+                font-size: 11px;
+            }
+
+            .diff-status {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .security-indicator {
+                font-size: 12px;
+                cursor: help;
+            }
+
+            .approval-status {
+                font-size: 11px;
+                font-weight: 500;
+                padding: 2px 6px;
+                border-radius: 3px;
+                background: var(--vscode-badge-background);
+                color: var(--vscode-badge-foreground);
+            }
+
+            .diff-content {
+                max-height: 300px;
+                overflow-y: auto;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 11px;
+                line-height: 1.4;
+            }
+
+            .diff-hunk {
+                margin: 4px 0;
+            }
+
+            .hunk-header {
+                background: var(--vscode-diffEditor-unchangedRegionBackground);
+                color: var(--vscode-descriptionForeground);
+                padding: 4px 8px;
+                font-size: 10px;
+                border-top: 1px solid var(--vscode-panel-border);
+                border-bottom: 1px solid var(--vscode-panel-border);
+            }
+
+            .diff-line {
+                display: flex;
+                align-items: center;
+                padding: 1px 0;
+                white-space: pre;
+                font-family: var(--vscode-editor-font-family);
+            }
+
+            .diff-line.add {
+                background: var(--vscode-diffEditor-insertedTextBackground);
+                color: var(--vscode-diffEditor-insertedTextForeground);
+            }
+
+            .diff-line.remove {
+                background: var(--vscode-diffEditor-removedTextBackground);
+                color: var(--vscode-diffEditor-removedTextForeground);
+            }
+
+            .diff-line.context {
+                background: var(--vscode-editor-background);
+                color: var(--vscode-foreground);
+            }
+
+            .diff-line.security-issue {
+                border-left: 3px solid var(--vscode-errorForeground);
+            }
+
+            .diff-line.quality-issue {
+                border-left: 3px solid var(--vscode-notificationsWarningIcon-foreground);
+            }
+
+            .line-number {
+                min-width: 40px;
+                padding: 0 8px;
+                color: var(--vscode-editorLineNumber-foreground);
+                text-align: right;
+                user-select: none;
+            }
+
+            .line-prefix {
+                min-width: 20px;
+                padding: 0 4px;
+                font-weight: bold;
+                user-select: none;
+            }
+
+            .line-content {
+                flex: 1;
+                padding-right: 8px;
+            }
+
+            .simple-diff {
+                padding: 8px;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 11px;
+                line-height: 1.4;
+            }
+
+            .diff-more {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+                text-align: center;
+                padding: 8px;
+                border-top: 1px solid var(--vscode-panel-border);
+            }
+
+            .diff-actions {
+                display: flex;
+                gap: 8px;
+                padding: 8px 12px;
+                background: var(--vscode-titleBar-inactiveBackground);
+                border-top: 1px solid var(--vscode-panel-border);
+            }
+
+            .diff-action {
+                padding: 4px 8px;
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: background-color 0.2s;
+            }
+
+            .diff-action.approve {
+                background: var(--vscode-testing-iconPassed);
+                color: white;
+            }
+
+            .diff-action.reject {
+                background: var(--vscode-testing-iconFailed);
+                color: white;
+            }
+
+            .diff-action.apply {
+                background: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+            }
+
+            .diff-action.preview {
+                background: var(--vscode-button-secondaryBackground);
+                color: var(--vscode-button-secondaryForeground);
+            }
+
+            .diff-action:hover {
+                opacity: 0.8;
+            }
+
+            .diff-impact {
+                padding: 8px 12px;
+                border-top: 1px solid var(--vscode-panel-border);
+                background: var(--vscode-editor-background);
+            }
+
+            .impact-section {
+                margin: 6px 0;
+                padding: 6px;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+
+            .security-impact {
+                background: var(--vscode-inputValidation-errorBackground);
+                border-left: 3px solid var(--vscode-errorForeground);
+            }
+
+            .quality-impact {
+                background: var(--vscode-inputValidation-warningBackground);
+                border-left: 3px solid var(--vscode-notificationsWarningIcon-foreground);
+            }
+
+            .impact-section ul {
+                margin: 4px 0;
+                padding-left: 16px;
+            }
+
+            .impact-section li {
+                margin: 2px 0;
+            }
+
+            /* Interactive Graph Styles */
+            .interactive-graph, .graph-exploration {
+                margin: 10px 0;
+                padding: 12px;
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 6px;
+                font-size: 12px;
+            }
+
+            .interactive-graph h4, .graph-exploration h4 {
+                margin: 0 0 12px 0;
+                color: var(--vscode-foreground);
+                font-size: 13px;
+            }
+
+            .graph-container {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                margin: 12px 0;
+            }
+
+            .graph-center {
+                display: flex;
+                justify-content: center;
+                margin: 8px 0;
+            }
+
+            .center-node {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 12px;
+                background: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s;
+                min-width: 120px;
+            }
+
+            .center-node:hover {
+                background: var(--vscode-button-hoverBackground);
+                transform: scale(1.05);
+            }
+
+            .graph-section {
+                margin: 8px 0;
+            }
+
+            .graph-section h5 {
+                margin: 0 0 8px 0;
+                color: var(--vscode-foreground);
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            .node-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .graph-node {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                background: var(--vscode-input-background);
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                font-size: 11px;
+            }
+
+            .graph-node:hover {
+                background: var(--vscode-list-hoverBackground);
+            }
+
+            .graph-node.dependency {
+                border-left: 3px solid var(--vscode-charts-blue);
+            }
+
+            .graph-node.dependent {
+                border-left: 3px solid var(--vscode-charts-green);
+            }
+
+            .node-icon {
+                font-size: 14px;
+                min-width: 20px;
+            }
+
+            .node-name {
+                font-weight: 600;
+                color: var(--vscode-foreground);
+                flex: 1;
+            }
+
+            .node-type {
+                background: var(--vscode-badge-background);
+                color: var(--vscode-badge-foreground);
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+
+            .node-file {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+                font-size: 10px;
+            }
+
+            .more-nodes {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+                text-align: center;
+                padding: 4px;
+                font-size: 10px;
+            }
+
+            .graph-impact {
+                margin: 12px 0;
+                padding: 8px;
+                background: var(--vscode-titleBar-inactiveBackground);
+                border-radius: 4px;
+            }
+
+            .graph-impact h5 {
+                margin: 0 0 8px 0;
+                color: var(--vscode-foreground);
+                font-size: 12px;
+            }
+
+            .impact-metrics {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+
+            .impact-metrics .metric {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 4px;
+                background: var(--vscode-input-background);
+                border-radius: 3px;
+            }
+
+            .metric-label {
+                font-size: 10px;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            .metric-value {
+                font-weight: 600;
+                font-size: 11px;
+            }
+
+            .metric-value.risk-low { color: var(--vscode-charts-green); }
+            .metric-value.risk-medium { color: var(--vscode-charts-yellow); }
+            .metric-value.risk-high { color: var(--vscode-charts-red); }
+            .metric-value.risk-critical { color: var(--vscode-errorForeground); }
+
+            .graph-actions {
+                display: flex;
+                gap: 8px;
+                margin: 12px 0;
+            }
+
+            .graph-action {
+                padding: 6px 12px;
+                background: var(--vscode-button-secondaryBackground);
+                color: var(--vscode-button-secondaryForeground);
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+
+            .graph-action:hover {
+                background: var(--vscode-button-secondaryHoverBackground);
+            }
+
+            .graph-hints {
+                margin: 12px 0 0 0;
+                padding: 8px;
+                background: var(--vscode-textCodeBlock-background);
+                border-radius: 4px;
+                font-size: 10px;
+            }
+
+            .graph-hints ul {
+                margin: 4px 0 0 0;
+                padding-left: 16px;
+            }
+
+            .graph-hints li {
+                margin: 2px 0;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            /* Graph Exploration Styles */
+            .exploration-summary {
+                display: flex;
+                gap: 16px;
+                margin: 12px 0;
+                padding: 8px;
+                background: var(--vscode-titleBar-inactiveBackground);
+                border-radius: 4px;
+            }
+
+            .summary-metric {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 2px;
+            }
+
+            .exploration-section {
+                margin: 12px 0;
+            }
+
+            .exploration-section h5 {
+                margin: 0 0 8px 0;
+                color: var(--vscode-foreground);
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            .path-list {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .dependency-path {
+                padding: 8px;
+                border-radius: 4px;
+                background: var(--vscode-input-background);
+            }
+
+            .dependency-path.risk-low {
+                border-left: 3px solid var(--vscode-charts-green);
+            }
+
+            .dependency-path.risk-medium {
+                border-left: 3px solid var(--vscode-charts-yellow);
+            }
+
+            .dependency-path.risk-high {
+                border-left: 3px solid var(--vscode-charts-red);
+            }
+
+            .path-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 4px;
+            }
+
+            .path-number {
+                background: var(--vscode-badge-background);
+                color: var(--vscode-badge-foreground);
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+                min-width: 20px;
+                text-align: center;
+            }
+
+            .path-description {
+                flex: 1;
+                font-weight: 500;
+                font-size: 11px;
+            }
+
+            .path-risk {
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+
+            .path-risk.risk-low { background: var(--vscode-charts-green); color: white; }
+            .path-risk.risk-medium { background: var(--vscode-charts-yellow); color: black; }
+            .path-risk.risk-high { background: var(--vscode-charts-red); color: white; }
+
+            .path-nodes {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex-wrap: wrap;
+                font-size: 10px;
+            }
+
+            .path-node {
+                background: var(--vscode-button-secondaryBackground);
+                color: var(--vscode-button-secondaryForeground);
+                padding: 2px 6px;
+                border-radius: 3px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+
+            .path-node:hover {
+                background: var(--vscode-button-secondaryHoverBackground);
+            }
+
+            .path-arrow {
+                color: var(--vscode-descriptionForeground);
+                font-weight: bold;
+            }
+
+            .hotspot-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .hotspot-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                background: var(--vscode-input-background);
+                border-left: 3px solid var(--vscode-charts-red);
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                font-size: 11px;
+            }
+
+            .hotspot-item:hover {
+                background: var(--vscode-list-hoverBackground);
+            }
+
+            .hotspot-name {
+                font-weight: 600;
+                color: var(--vscode-foreground);
+                flex: 1;
+            }
+
+            .hotspot-connections {
+                background: var(--vscode-charts-red);
+                color: white;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+
+            .hotspot-file {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+                font-size: 10px;
+            }
+
+            .suggestion-list {
+                margin: 4px 0;
+                padding-left: 16px;
+            }
+
+            .suggestion-list li {
+                margin: 4px 0;
+                color: var(--vscode-foreground);
+                font-size: 11px;
+            }
+
+            .graph-error {
+                padding: 8px;
+                background: var(--vscode-inputValidation-errorBackground);
+                border-left: 3px solid var(--vscode-errorForeground);
+                border-radius: 4px;
+                color: var(--vscode-errorForeground);
+                font-size: 11px;
+            }
             
             .input-wrapper {
                 display: flex;
@@ -1590,6 +2731,21 @@ export class ChatInterface {
             metadataHtml += this.renderDependencyVisualization(metadata.dependencyAnalysis);
         }
 
+        // Add diff visualizations if available
+        if (metadata.diffs && metadata.diffs.length > 0) {
+            metadataHtml += this.renderDiffVisualizations(metadata.diffs);
+        }
+
+        // Add interactive graph if available
+        if (metadata.interactiveGraph && metadata.graphData) {
+            metadataHtml += this.renderInteractiveGraph(metadata.graphData);
+        }
+
+        // Add graph exploration if available
+        if (metadata.graphExploration && metadata.explorationData) {
+            metadataHtml += this.renderGraphExploration(metadata.explorationData);
+        }
+
         return metadataHtml;
     }
 
@@ -1685,6 +2841,386 @@ export class ChatInterface {
                         </div>
                     ` : ''}
                 </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render diff visualizations
+     */
+    private renderDiffVisualizations(diffs: CodeDiff[]): string {
+        return `
+            <div class="diff-visualizations">
+                <h4>📝 Code Changes</h4>
+                ${diffs.map(diff => this.renderSingleDiff(diff)).join('')}
+            </div>
+        `;
+    }
+
+    /**
+     * Render a single diff
+     */
+    private renderSingleDiff(diff: CodeDiff): string {
+        const fileName = diff.filePath.split('/').pop() || diff.filePath;
+        const diffTypeIcon = diff.diffType === 'create' ? '📄' :
+                            diff.diffType === 'delete' ? '🗑️' : '✏️';
+
+        const approvalStatusClass = diff.approvalStatus === 'approved' ? 'approved' :
+                                   diff.approvalStatus === 'rejected' ? 'rejected' : 'pending';
+
+        const securityRisk = diff.securityImpact?.riskLevel || 'low';
+        const securityIcon = securityRisk === 'critical' ? '🔴' :
+                            securityRisk === 'high' ? '🟠' :
+                            securityRisk === 'medium' ? '🟡' : '🟢';
+
+        return `
+            <div class="diff-container ${approvalStatusClass}" data-diff-id="${diff.id}">
+                <div class="diff-header">
+                    <div class="diff-file-info">
+                        <span class="diff-type-icon">${diffTypeIcon}</span>
+                        <span class="diff-filename">${fileName}</span>
+                        <span class="diff-path">${diff.filePath}</span>
+                    </div>
+                    <div class="diff-status">
+                        <span class="security-indicator" title="Security Risk: ${securityRisk}">${securityIcon}</span>
+                        <span class="approval-status">${this.getApprovalStatusText(diff.approvalStatus)}</span>
+                    </div>
+                </div>
+
+                ${this.renderDiffContent(diff)}
+
+                <div class="diff-actions">
+                    ${diff.approvalStatus === 'pending' ? `
+                        <button class="diff-action approve" onclick="approveDiff('${diff.id}')">✅ Approve</button>
+                        <button class="diff-action reject" onclick="rejectDiff('${diff.id}')">❌ Reject</button>
+                    ` : ''}
+                    ${diff.approvalStatus === 'approved' && !diff.applied ? `
+                        <button class="diff-action apply" onclick="applyDiff('${diff.id}')">🚀 Apply</button>
+                    ` : ''}
+                    <button class="diff-action preview" onclick="previewDiff('${diff.id}')">👁️ Preview</button>
+                </div>
+
+                ${this.renderDiffImpact(diff)}
+            </div>
+        `;
+    }
+
+    /**
+     * Render diff content with syntax highlighting
+     */
+    private renderDiffContent(diff: CodeDiff): string {
+        if (diff.hunks && diff.hunks.length > 0) {
+            return `
+                <div class="diff-content">
+                    ${diff.hunks.map(hunk => this.renderDiffHunk(hunk)).join('')}
+                </div>
+            `;
+        } else {
+            // Fallback to simple diff
+            return this.renderSimpleDiff(diff);
+        }
+    }
+
+    /**
+     * Render a diff hunk
+     */
+    private renderDiffHunk(hunk: DiffHunk): string {
+        return `
+            <div class="diff-hunk">
+                <div class="hunk-header">
+                    @@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@ ${hunk.context}
+                </div>
+                <div class="hunk-lines">
+                    ${hunk.lines.map(line => this.renderDiffLine(line)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render a diff line
+     */
+    private renderDiffLine(line: DiffLine): string {
+        const lineClass = `diff-line ${line.type}`;
+        const linePrefix = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
+        const securityClass = line.hasSecurityIssue ? 'security-issue' : '';
+        const qualityClass = line.hasQualityIssue ? 'quality-issue' : '';
+
+        return `
+            <div class="${lineClass} ${securityClass} ${qualityClass}">
+                <span class="line-number">${line.lineNumber}</span>
+                <span class="line-prefix">${linePrefix}</span>
+                <span class="line-content">${this.escapeHtml(line.content)}</span>
+            </div>
+        `;
+    }
+
+    /**
+     * Render simple diff (fallback)
+     */
+    private renderSimpleDiff(diff: CodeDiff): string {
+        const oldLines = diff.oldContent.split('\n');
+        const newLines = diff.newContent.split('\n');
+        const maxLines = Math.max(oldLines.length, newLines.length);
+
+        let diffHtml = '<div class="simple-diff">';
+
+        for (let i = 0; i < Math.min(maxLines, 10); i++) { // Limit to 10 lines for preview
+            const oldLine = oldLines[i] || '';
+            const newLine = newLines[i] || '';
+
+            if (oldLine !== newLine) {
+                if (oldLine) {
+                    diffHtml += `<div class="diff-line remove">- ${this.escapeHtml(oldLine)}</div>`;
+                }
+                if (newLine) {
+                    diffHtml += `<div class="diff-line add">+ ${this.escapeHtml(newLine)}</div>`;
+                }
+            } else if (oldLine) {
+                diffHtml += `<div class="diff-line context">  ${this.escapeHtml(oldLine)}</div>`;
+            }
+        }
+
+        if (maxLines > 10) {
+            diffHtml += `<div class="diff-more">... and ${maxLines - 10} more lines</div>`;
+        }
+
+        diffHtml += '</div>';
+        return diffHtml;
+    }
+
+    /**
+     * Render diff impact information
+     */
+    private renderDiffImpact(diff: CodeDiff): string {
+        let impactHtml = '';
+
+        if (diff.securityImpact && diff.securityImpact.issues.length > 0) {
+            impactHtml += `
+                <div class="impact-section security-impact">
+                    <strong>🔒 Security Impact (${diff.securityImpact.riskLevel}):</strong>
+                    <ul>
+                        ${diff.securityImpact.issues.map(issue => `<li>${issue}</li>`).join('')}
+                    </ul>
+                    ${diff.securityImpact.recommendations.length > 0 ? `
+                        <strong>Recommendations:</strong>
+                        <ul>
+                            ${diff.securityImpact.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                        </ul>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        if (diff.qualityImpact && diff.qualityImpact.issues.length > 0) {
+            impactHtml += `
+                <div class="impact-section quality-impact">
+                    <strong>🔍 Quality Impact:</strong>
+                    <ul>
+                        ${diff.qualityImpact.issues.map(issue => `<li>${issue}</li>`).join('')}
+                    </ul>
+                    ${diff.qualityImpact.improvements.length > 0 ? `
+                        <strong>Improvements:</strong>
+                        <ul>
+                            ${diff.qualityImpact.improvements.map(imp => `<li>${imp}</li>`).join('')}
+                        </ul>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        return impactHtml ? `<div class="diff-impact">${impactHtml}</div>` : '';
+    }
+
+    /**
+     * Get approval status text
+     */
+    private getApprovalStatusText(status?: string): string {
+        switch (status) {
+            case 'approved': return '✅ Approved';
+            case 'rejected': return '❌ Rejected';
+            case 'pending': return '⏳ Pending';
+            default: return '📋 Ready';
+        }
+    }
+
+    /**
+     * Render interactive graph visualization
+     */
+    private renderInteractiveGraph(graphData: any): string {
+        if (graphData.error) {
+            return `<div class="graph-error">❌ ${graphData.error}</div>`;
+        }
+
+        const centerNode = graphData.centerNode;
+        const dependencies = graphData.dependencies || [];
+        const dependents = graphData.dependents || [];
+        const impact = graphData.impactAnalysis || {};
+
+        return `
+            <div class="interactive-graph">
+                <h4>🕸️ Interactive Dependency Graph</h4>
+
+                <div class="graph-container">
+                    <div class="graph-center">
+                        <div class="center-node" onclick="exploreNode('${centerNode.name}', '${centerNode.file}')">
+                            <span class="node-icon">🎯</span>
+                            <span class="node-name">${centerNode.name}</span>
+                            <span class="node-file">${centerNode.file.split('/').pop()}</span>
+                        </div>
+                    </div>
+
+                    ${dependencies.length > 0 ? `
+                        <div class="graph-section dependencies">
+                            <h5>Dependencies (${dependencies.length})</h5>
+                            <div class="node-list">
+                                ${dependencies.slice(0, 5).map((dep: any) => `
+                                    <div class="graph-node dependency" onclick="exploreNode('${dep.name}', '${dep.file}')">
+                                        <span class="node-icon">📦</span>
+                                        <span class="node-name">${dep.name}</span>
+                                        <span class="node-type">${dep.type}</span>
+                                        <span class="node-file">${dep.file.split('/').pop()}</span>
+                                    </div>
+                                `).join('')}
+                                ${dependencies.length > 5 ? `<div class="more-nodes">... and ${dependencies.length - 5} more</div>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${dependents.length > 0 ? `
+                        <div class="graph-section dependents">
+                            <h5>Dependents (${dependents.length})</h5>
+                            <div class="node-list">
+                                ${dependents.slice(0, 5).map((dep: any) => `
+                                    <div class="graph-node dependent" onclick="exploreNode('${dep.name}', '${dep.file}')">
+                                        <span class="node-icon">🔗</span>
+                                        <span class="node-name">${dep.name}</span>
+                                        <span class="node-type">${dep.type}</span>
+                                        <span class="node-file">${dep.file.split('/').pop()}</span>
+                                    </div>
+                                `).join('')}
+                                ${dependents.length > 5 ? `<div class="more-nodes">... and ${dependents.length - 5} more</div>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="graph-impact">
+                    <h5>📊 Impact Analysis</h5>
+                    <div class="impact-metrics">
+                        <div class="metric">
+                            <span class="metric-label">Direct Impact:</span>
+                            <span class="metric-value">${impact.directImpact || 0} items</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Indirect Impact:</span>
+                            <span class="metric-value">${impact.indirectImpact || 0} items</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Risk Level:</span>
+                            <span class="metric-value risk-${impact.riskLevel || 'low'}">${(impact.riskLevel || 'low').toUpperCase()}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Affected Files:</span>
+                            <span class="metric-value">${impact.affectedFiles || 0} files</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="graph-actions">
+                    <button class="graph-action" onclick="exploreGraphDeep('${centerNode.name}', '${centerNode.file}', 3)">
+                        🔍 Deep Explore (Depth 3)
+                    </button>
+                    <button class="graph-action" onclick="showTaintPath('${centerNode.name}', '${centerNode.file}')">
+                        🛡️ Show Taint Path
+                    </button>
+                </div>
+
+                ${graphData.interactionHints ? `
+                    <div class="graph-hints">
+                        <strong>💡 Interaction Hints:</strong>
+                        <ul>
+                            ${graphData.interactionHints.map((hint: string) => `<li>${hint}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    /**
+     * Render graph exploration results
+     */
+    private renderGraphExploration(explorationData: any): string {
+        const paths = explorationData.paths || [];
+        const hotspots = explorationData.hotspots || [];
+        const suggestions = explorationData.suggestions || [];
+
+        return `
+            <div class="graph-exploration">
+                <h4>🔍 Graph Exploration Results</h4>
+
+                <div class="exploration-summary">
+                    <div class="summary-metric">
+                        <span class="metric-label">Paths Found:</span>
+                        <span class="metric-value">${explorationData.totalPaths || 0}</span>
+                    </div>
+                    <div class="summary-metric">
+                        <span class="metric-label">Exploration Depth:</span>
+                        <span class="metric-value">${explorationData.explorationDepth || 0}</span>
+                    </div>
+                    <div class="summary-metric">
+                        <span class="metric-label">Hotspots:</span>
+                        <span class="metric-value">${hotspots.length}</span>
+                    </div>
+                </div>
+
+                ${paths.length > 0 ? `
+                    <div class="exploration-section">
+                        <h5>🛤️ Dependency Paths</h5>
+                        <div class="path-list">
+                            ${paths.map((path: any, index: number) => `
+                                <div class="dependency-path risk-${path.riskLevel}">
+                                    <div class="path-header">
+                                        <span class="path-number">#${index + 1}</span>
+                                        <span class="path-description">${path.description}</span>
+                                        <span class="path-risk risk-${path.riskLevel}">${path.riskLevel.toUpperCase()}</span>
+                                    </div>
+                                    <div class="path-nodes">
+                                        ${path.nodes.map((node: any, nodeIndex: number) => `
+                                            <span class="path-node" onclick="exploreNode('${node.name}', '${node.file}')">${node.name}</span>
+                                            ${nodeIndex < path.nodes.length - 1 ? '<span class="path-arrow">→</span>' : ''}
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${hotspots.length > 0 ? `
+                    <div class="exploration-section">
+                        <h5>🔥 Connectivity Hotspots</h5>
+                        <div class="hotspot-list">
+                            ${hotspots.map((hotspot: any) => `
+                                <div class="hotspot-item" onclick="exploreNode('${hotspot.name}', '${hotspot.file}')">
+                                    <span class="hotspot-name">${hotspot.name}</span>
+                                    <span class="hotspot-connections">${hotspot.connections} connections</span>
+                                    <span class="hotspot-file">${hotspot.file.split('/').pop()}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${suggestions.length > 0 ? `
+                    <div class="exploration-section">
+                        <h5>💡 Architectural Suggestions</h5>
+                        <ul class="suggestion-list">
+                            ${suggestions.map((suggestion: string) => `<li>${suggestion}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
@@ -1796,6 +3332,72 @@ export class ChatInterface {
             function getProactiveDebtSuggestions() {
                 vscode.postMessage({
                     command: 'getProactiveDebtSuggestions'
+                });
+            }
+
+            function approveDiff(diffId) {
+                vscode.postMessage({
+                    command: 'approveDiff',
+                    diffId: diffId
+                });
+            }
+
+            function rejectDiff(diffId) {
+                vscode.postMessage({
+                    command: 'rejectDiff',
+                    diffId: diffId
+                });
+            }
+
+            function applyDiff(diffId) {
+                vscode.postMessage({
+                    command: 'applyDiff',
+                    diffId: diffId
+                });
+            }
+
+            function previewDiff(diffId) {
+                vscode.postMessage({
+                    command: 'previewDiff',
+                    diffId: diffId
+                });
+            }
+
+            function showSampleDiff() {
+                vscode.postMessage({
+                    command: 'showSampleDiff'
+                });
+            }
+
+            function showGraphPopover() {
+                vscode.postMessage({
+                    command: 'showGraphPopover'
+                });
+            }
+
+            function exploreNode(symbolName, filePath) {
+                vscode.postMessage({
+                    command: 'showGraphPopover',
+                    symbolName: symbolName,
+                    filePath: filePath
+                });
+            }
+
+            function exploreGraphDeep(symbolName, filePath, depth) {
+                vscode.postMessage({
+                    command: 'exploreGraph',
+                    symbolName: symbolName,
+                    filePath: filePath,
+                    depth: depth
+                });
+            }
+
+            function showTaintPath(symbolName, filePath) {
+                vscode.postMessage({
+                    command: 'exploreGraph',
+                    symbolName: symbolName,
+                    filePath: filePath,
+                    depth: 5
                 });
             }
             

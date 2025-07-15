@@ -137,7 +137,7 @@ export class StartupOptimizer {
             this.contextLogger.warn('Startup time exceeded threshold', {
                 actual: this.startupMetrics.totalStartupTime,
                 threshold: this.config.startupTimeThreshold
-            });
+            } as any);
         }
 
         // Start progressive activation if enabled

@@ -1,28 +1,28 @@
-import { suite, test } from 'mocha';
+import { describe, it, beforeEach, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { Logger, LogLevel } from '../../utils/logger';
 import { TestUtils } from '../utils/testUtils';
 
-suite('Logger Unit Tests', () => {
+describe('Logger Unit Tests', () => {
     let logger: Logger;
 
-    setup(() => {
+    beforeEach(() => {
         TestUtils.setup();
         logger = Logger.getInstance();
         logger.clearLogs();
     });
 
-    teardown(() => {
+    afterEach(() => {
         TestUtils.teardown();
     });
 
-    test('should create singleton instance', () => {
+    it('should create singleton instance', () => {
         const logger1 = Logger.getInstance();
         const logger2 = Logger.getInstance();
         expect(logger1).to.equal(logger2);
     });
 
-    test('should log messages with correct level', () => {
+    it('should log messages with correct level', () => {
         logger.setLogLevel(LogLevel.DEBUG);
 
         logger.debug('Debug message');
@@ -38,7 +38,7 @@ suite('Logger Unit Tests', () => {
         expect(entries[3].level).to.equal(LogLevel.ERROR);
     });
 
-    test('should filter logs by level', () => {
+    it('should filter logs by level', () => {
         logger.setLogLevel(LogLevel.WARN);
 
         logger.debug('Debug message');
@@ -52,7 +52,7 @@ suite('Logger Unit Tests', () => {
         expect(entries[1].level).to.equal(LogLevel.ERROR);
     });
 
-    test('should create context logger', () => {
+    it('should create context logger', () => {
         const contextLogger = logger.createContextLogger('TestContext');
         contextLogger.info('Test message');
 
@@ -62,7 +62,7 @@ suite('Logger Unit Tests', () => {
         expect(entries[0].message).to.equal('Test message');
     });
 
-    test('should clear logs', () => {
+    it('should clear logs', () => {
         logger.info('Test message');
         expect(logger.getLogEntries()).to.have.length(1);
 

@@ -31,7 +31,7 @@ if (!isMainThread && parentPort) {
     let eslintInstance: ESLint | null = null;
     
     const initializeESLint = async (workspaceRoot: string): Promise<void> => {
-        if (eslintInstance) return;
+        if (eslintInstance) {return;}
         
         try {
             eslintInstance = new ESLint({
@@ -293,8 +293,12 @@ export class LintingWorkerPool {
             // Round-robin worker selection
             const worker = this.workers[this.workerIndex];
             this.workerIndex = (this.workerIndex + 1) % this.maxWorkers;
-            
-            worker.postMessage(taskWithId);
+
+            if (worker) {
+                worker.postMessage(taskWithId);
+            } else {
+                reject(new Error('No worker available'));
+            }
         });
     }
 

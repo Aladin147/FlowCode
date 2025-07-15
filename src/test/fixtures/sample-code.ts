@@ -46,7 +46,7 @@ export function findMax(numbers: number[]): number {
 // Function with potential issues for testing linting
 export function problematicFunction(input: any): any {
     var result = input; // Should use let/const
-    if (result == null) { // Should use ===
+    if (result === null) { // Should use ===
         return undefined;
     }
     return result;

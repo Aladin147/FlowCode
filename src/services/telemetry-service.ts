@@ -75,13 +75,13 @@ export class TelemetryService {
 
         // Check specific data collection settings
         if (eventType === 'command' || eventType === 'feature') {
-            if (!this.config.collectUsageData) return;
+            if (!this.config.collectUsageData) {return;}
         } else if (eventType === 'performance') {
-            if (!this.config.collectPerformanceData) return;
+            if (!this.config.collectPerformanceData) {return;}
         } else if (eventType === 'error') {
-            if (!this.config.collectErrorReports) return;
+            if (!this.config.collectErrorReports) {return;}
         } else if (eventType === 'feedback') {
-            if (!this.config.collectFeedback) return;
+            if (!this.config.collectFeedback) {return;}
         }
 
         // Create event

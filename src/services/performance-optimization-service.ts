@@ -305,7 +305,7 @@ export class PerformanceOptimizationService {
      * Update status bar with current performance info
      */
     private updateStatusBar(): void {
-        if (!this.statusBarItem) return;
+        if (!this.statusBarItem) {return;}
 
         try {
             const memoryUsage = this.memoryOptimizer.getMemoryUsage();

@@ -116,6 +116,10 @@ export class PerformanceBenchmark {
             metadata
         } : results[results.length - 1];
 
+        if (!averageResult) {
+            throw new Error('No successful benchmark results');
+        }
+
         this.contextLogger.info(`Benchmark completed for ${operation}`, {
             averageDuration: averageResult.duration,
             successRate: (successfulResults.length / results.length) * 100,

@@ -18,7 +18,7 @@
     "url": "https://github.com/Aladin147/FlowCode/issues"
   },
   "engines": {
-    "vscode": "^1.74.0",
+    "vscode": "^1.102.0",
     "node": ">=16.0.0"
   },
   "categories": [
@@ -47,7 +47,6 @@
     "color": "#1e1e1e",
     "theme": "dark"
   },
-  "icon": "resources/icon.png",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -172,6 +171,21 @@
           "enum": ["debug", "info", "warn", "error"],
           "default": "info",
           "description": "Logging level"
+        },
+        "flowcode.maxTokens": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum tokens for AI responses"
+        },
+        "flowcode.enableCompanionGuard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time quality checks"
+        },
+        "flowcode.enableFinalGuard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable pre-push quality gates"
         }
       }
     },
@@ -298,39 +312,7 @@
         "category": "FlowCode"
       }
     ],
-    "configuration": {
-      "title": "FlowCode",
-      "properties": {
-        "flowcode.apiProvider": {
-          "type": "string",
-          "enum": [
-            "openai",
-            "anthropic"
-          ],
-          "default": "openai",
-          "description": "AI provider for cloud-based assistance"
-        },
-        "flowcode.apiKey": {
-          "type": "string",
-          "description": "API key for the selected provider"
-        },
-        "flowcode.maxTokens": {
-          "type": "number",
-          "default": 2000,
-          "description": "Maximum tokens for AI responses"
-        },
-        "flowcode.enableCompanionGuard": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable real-time quality checks"
-        },
-        "flowcode.enableFinalGuard": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable pre-push quality gates"
-        }
-      }
-    },
+
     "statusBarItem": {
       "id": "flowcode.status",
       "alignment": "right",

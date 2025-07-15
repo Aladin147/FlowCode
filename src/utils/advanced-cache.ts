@@ -118,7 +118,7 @@ export class AdvancedCache<T> {
 
     public has(key: string): boolean {
         const entry = this.cache.get(key);
-        if (!entry) return false;
+        if (!entry) {return false;}
 
         const now = Date.now();
         if (now - entry.timestamp > entry.ttl) {
@@ -131,7 +131,7 @@ export class AdvancedCache<T> {
 
     public delete(key: string): boolean {
         const entry = this.cache.get(key);
-        if (!entry) return false;
+        if (!entry) {return false;}
 
         this.cache.delete(key);
         this.stats.totalSize -= entry.size;
@@ -172,7 +172,7 @@ export class AdvancedCache<T> {
             (this.stats.entryCount >= this.maxEntries)
         ) {
             const entryToEvict = this.selectEntryForEviction();
-            if (!entryToEvict) break;
+            if (!entryToEvict) {break;}
 
             this.delete(entryToEvict);
             this.stats.evictions++;
@@ -180,7 +180,7 @@ export class AdvancedCache<T> {
     }
 
     private selectEntryForEviction(): string | undefined {
-        if (this.cache.size === 0) return undefined;
+        if (this.cache.size === 0) {return undefined;}
 
         const now = Date.now();
         let selectedKey: string | undefined;
@@ -232,7 +232,7 @@ export class AdvancedCache<T> {
 
     public getEntryInfo(key: string): Partial<CacheEntry<T>> | undefined {
         const entry = this.cache.get(key);
-        if (!entry) return undefined;
+        if (!entry) {return undefined;}
 
         return {
             timestamp: entry.timestamp,
@@ -246,7 +246,7 @@ export class AdvancedCache<T> {
     }
 
     private async saveToDisk(): Promise<void> {
-        if (!this.persistPath) return;
+        if (!this.persistPath) {return;}
 
         try {
             const data = {
@@ -263,7 +263,7 @@ export class AdvancedCache<T> {
     }
 
     private loadFromDisk(): void {
-        if (!this.persistPath || !fs.existsSync(this.persistPath)) return;
+        if (!this.persistPath || !fs.existsSync(this.persistPath)) {return;}
 
         try {
             const data = JSON.parse(fs.readFileSync(this.persistPath, 'utf8'));

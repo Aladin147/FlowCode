@@ -163,8 +163,8 @@ export class PerformanceMonitor {
             count: operationMetrics.length,
             totalDuration,
             averageDuration: totalDuration / operationMetrics.length,
-            minDuration: durations[0],
-            maxDuration: durations[durations.length - 1],
+            minDuration: durations[0] ?? 0,
+            maxDuration: durations[durations.length - 1] ?? 0,
             p50: this.percentile(durations, 0.5),
             p95: this.percentile(durations, 0.95),
             p99: this.percentile(durations, 0.99),
@@ -263,8 +263,10 @@ export class PerformanceMonitor {
         if (recentMetrics.length > 0) {
             report += '\n## Recent Activity (Last 5 minutes)\n\n';
             const recentByOperation = recentMetrics.reduce((acc, metric) => {
-                if (!acc[metric.name]) acc[metric.name] = [];
-                acc[metric.name].push(metric);
+                if (!acc[metric.name]) {
+                    acc[metric.name] = [];
+                }
+                acc[metric.name]?.push(metric);
                 return acc;
             }, {} as Record<string, PerformanceMetric[]>);
 
@@ -296,10 +298,10 @@ export class PerformanceMonitor {
      * Calculate percentile
      */
     private percentile(sortedArray: number[], p: number): number {
-        if (sortedArray.length === 0) return 0;
-        
+        if (sortedArray.length === 0) {return 0;}
+
         const index = Math.ceil(sortedArray.length * p) - 1;
-        return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))];
+        return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))] ?? 0;
     }
 
     /**
@@ -323,8 +325,9 @@ export class PerformanceMonitor {
         const summary: { [key: string]: number } = {};
 
         for (const metric of this.metrics) {
-            if (summary[metric.name]) {
-                summary[metric.name] += metric.duration;
+            const currentValue = summary[metric.name];
+            if (currentValue !== undefined) {
+                summary[metric.name] = currentValue + metric.duration;
             } else {
                 summary[metric.name] = metric.duration;
             }

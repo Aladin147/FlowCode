@@ -369,7 +369,7 @@ function processData(data) {
      * Handle quick help actions
      */
     private async handleQuickHelpAction(action: string | undefined, topic: HelpTopic): Promise<void> {
-        if (!action) return;
+        if (!action) {return;}
 
         switch (action) {
             case '📺 Watch Video':

@@ -529,7 +529,7 @@ ${customScript}`;
         const warnings: string[] = [];
 
         for (const hookConfig of hooks) {
-            if (!hookConfig.enabled) continue;
+            if (!hookConfig.enabled) {continue;}
 
             const hookPath = path.join(hooksDir, hookConfig.name);
 

@@ -313,7 +313,7 @@ export class NotificationManager {
         context?: Partial<ErrorContext>,
         notificationId?: string
     ): Promise<void> {
-        if (!result) return;
+        if (!result) {return;}
 
         switch (result) {
             case '📖 View Documentation':

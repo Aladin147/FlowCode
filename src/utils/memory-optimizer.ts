@@ -341,7 +341,7 @@ export class MemoryOptimizer {
                 this.contextLogger.warn('High memory usage detected', {
                     heapUsed: usage.heapUsed,
                     threshold: this.config.memoryThreshold
-                });
+                } as any);
             }
         }, 30000); // Monitor every 30 seconds
 
@@ -383,11 +383,14 @@ export class MemoryOptimizer {
      */
     private evictCacheEntries(cacheName: string, count: number): void {
         const cache = this.caches.get(cacheName);
-        if (!cache) return;
+        if (!cache) {return;}
 
         const entries = Array.from(cache.keys());
         for (let i = 0; i < Math.min(count, entries.length); i++) {
-            cache.delete(entries[i]);
+            const entry = entries[i];
+            if (entry !== undefined) {
+                cache.delete(entry);
+            }
         }
 
         const stats = this.cacheStats.get(cacheName);
@@ -412,7 +415,7 @@ export class MemoryOptimizer {
      */
     private getCacheSize(cacheName: string): number {
         const cache = this.caches.get(cacheName);
-        if (!cache) return 0;
+        if (!cache) {return 0;}
 
         let totalSize = 0;
         for (const [key, value] of cache) {

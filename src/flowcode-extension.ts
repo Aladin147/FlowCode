@@ -16,6 +16,8 @@ import { SecurityValidator } from './utils/security-validator';
 import { SecurityValidatorService } from './services/security-validator';
 import { ArchitectCommands } from './commands/architect-commands';
 import { SecurityCommands } from './commands/security-commands';
+import { GitHookManager } from './services/git-hook-manager';
+import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
     private companionGuard: CompanionGuard;
@@ -33,6 +35,8 @@ export class FlowCodeExtension {
     private securityValidatorService: SecurityValidatorService;
     private architectCommands: ArchitectCommands;
     private securityCommands: SecurityCommands;
+    private gitHookManager: GitHookManager;
+    private contextLogger = logger.createContextLogger('FlowCodeExtension');
 
     constructor(private context: vscode.ExtensionContext) {
         this.configManager = new ConfigurationManager(context);
@@ -49,7 +53,8 @@ export class FlowCodeExtension {
         this.hotfixService = new HotfixService(this.configManager);
         this.securityValidatorService = new SecurityValidatorService(this.configManager);
         this.architectCommands = new ArchitectCommands(this.configManager);
-        this.securityCommands = new SecurityCommands(this.configManager);
+        this.securityCommands = new SecurityCommands(this.configManager, this.securityValidatorService);
+        this.gitHookManager = new GitHookManager(this.configManager);
     }
 
     public async activate(): Promise<void> {
@@ -139,9 +144,9 @@ export class FlowCodeExtension {
             {
                 placeholder: 'Fix critical bug in authentication',
                 validator: (value) => {
-                    if (!value.trim()) return 'Commit message cannot be empty';
-                    if (value.length < 10) return 'Commit message too short (minimum 10 characters)';
-                    if (value.length > 500) return 'Commit message too long (maximum 500 characters)';
+                    if (!value.trim()) {return 'Commit message cannot be empty';}
+                    if (value.length < 10) {return 'Commit message too short (minimum 10 characters)';}
+                    if (value.length > 500) {return 'Commit message too long (maximum 500 characters)';}
                     return null;
                 }
             }
@@ -343,11 +348,92 @@ export class FlowCodeExtension {
         await this.securityValidatorService.initialize();
         await this.architectCommands.initialize();
         await this.securityCommands.initialize();
+        // Note: GitHookManager doesn't need initialization, it's ready to use
     }
 
     private async initializeGitHooks(): Promise<void> {
-        // Git hooks initialization will be implemented here
-        // This includes setting up pre-commit and pre-push hooks
+        try {
+            // Check if we're in a git repository
+            const workspaceRoot = await this.configManager.getWorkspaceRoot();
+            const gitDir = require('path').join(workspaceRoot, '.git');
+
+            if (!require('fs').existsSync(gitDir)) {
+                this.statusBarManager.showWarning('Not a git repository');
+                vscode.window.showWarningMessage(
+                    'FlowCode git hooks require a git repository. Initialize git first.',
+                    'Initialize Git'
+                ).then(selection => {
+                    if (selection === 'Initialize Git') {
+                        vscode.commands.executeCommand('git.init');
+                    }
+                });
+                return;
+            }
+
+            // Install git hooks
+            this.statusBarManager.showRunning('Installing Git Hooks');
+
+            const result = await this.gitHookManager.installHooks(workspaceRoot);
+
+            if (result.success) {
+                this.statusBarManager.showSuccess('Git hooks installed');
+                this.contextLogger.info('Git hooks initialized successfully', {
+                    installedHooks: result.installedHooks,
+                    platform: result.platform
+                });
+            } else {
+                this.statusBarManager.showError('Git hooks failed');
+                this.contextLogger.error('Git hooks initialization failed', new Error(
+                    `Errors: ${result.errors.join(', ')}. Warnings: ${result.warnings.join(', ')}`
+                ));
+
+                // Show detailed error to user
+                const errorMessage = result.errors.length > 0
+                    ? result.errors.join('\n')
+                    : 'Unknown error occurred';
+
+                vscode.window.showErrorMessage(
+                    `Failed to install git hooks: ${errorMessage}`,
+                    'Retry', 'Show Details'
+                ).then(selection => {
+                    if (selection === 'Retry') {
+                        this.initializeGitHooks();
+                    } else if (selection === 'Show Details') {
+                        this.showGitHookStatus();
+                    }
+                });
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.statusBarManager.showError('Git hooks failed');
+            this.contextLogger.error('Git hooks initialization error', error as Error);
+
+            vscode.window.showErrorMessage(
+                `Git hooks initialization failed: ${message}`,
+                'Retry'
+            ).then(selection => {
+                if (selection === 'Retry') {
+                    this.initializeGitHooks();
+                }
+            });
+        }
+    }
+
+    private async showGitHookStatus(): Promise<void> {
+        try {
+            const status = await this.gitHookManager.getHookStatus();
+            const statusText = status.map(hook =>
+                `${hook.name}: ${hook.installed ? '✅ Installed' : '❌ Not Installed'} (${hook.platform})`
+            ).join('\n');
+
+            vscode.window.showInformationMessage(
+                `Git Hook Status:\n${statusText}`,
+                { modal: true }
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to get git hook status: ${message}`);
+        }
     }
 
     private async getExistingApiConfig(): Promise<{ provider: string } | null> {

@@ -173,7 +173,7 @@ export class CompanionGuard {
     }
 
     private getLanguage(document?: vscode.TextDocument): string {
-        if (!document) return 'unknown';
+        if (!document) {return 'unknown';}
 
         const languageId = document.languageId;
         const fileName = document.fileName;

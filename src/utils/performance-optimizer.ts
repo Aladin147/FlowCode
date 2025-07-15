@@ -98,7 +98,7 @@ export class PerformanceOptimizer {
                     duration: totalDuration,
                     target: target.maxDuration,
                     strategy
-                });
+                } as any);
             }
 
             return {
@@ -192,7 +192,7 @@ export class PerformanceOptimizer {
         let processing = false;
 
         const processBatch = async () => {
-            if (processing || queue.length === 0) return;
+            if (processing || queue.length === 0) {return;}
             processing = true;
 
             const batch = queue.splice(0, batchSize);
@@ -230,7 +230,7 @@ export class PerformanceOptimizer {
                     duration,
                     target: target.maxDuration,
                     threshold: target.warningThreshold
-                });
+                } as any);
             }
 
             return { result, duration, success };

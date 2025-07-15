@@ -69,7 +69,7 @@ export class PerformanceCache<T> {
         const entry = this.cache.get(key);
         
         if (!entry) {
-            if (this.enableStats) this.stats.misses++;
+            if (this.enableStats) {this.stats.misses++;}
             return undefined;
         }
 
@@ -77,14 +77,14 @@ export class PerformanceCache<T> {
         if (Date.now() - entry.timestamp > entry.ttl) {
             this.cache.delete(key);
             this.stats.totalSize -= entry.size;
-            if (this.enableStats) this.stats.misses++;
+            if (this.enableStats) {this.stats.misses++;}
             return undefined;
         }
 
         // Update access stats
         entry.accessCount++;
         entry.lastAccessed = Date.now();
-        if (this.enableStats) this.stats.hits++;
+        if (this.enableStats) {this.stats.hits++;}
 
         return entry.value;
     }
@@ -130,7 +130,7 @@ export class PerformanceCache<T> {
      */
     public has(key: string): boolean {
         const entry = this.cache.get(key);
-        if (!entry) return false;
+        if (!entry) {return false;}
         
         if (Date.now() - entry.timestamp > entry.ttl) {
             this.cache.delete(key);

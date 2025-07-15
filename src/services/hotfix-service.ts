@@ -401,6 +401,12 @@ export class HotfixService {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+
+            // Skip if line is undefined
+            if (!line) {
+                continue;
+            }
+
             const trimmed = line.trim();
 
             // Skip empty lines and comments
@@ -633,8 +639,13 @@ export class HotfixService {
                 throw new Error('Hotfix not found');
             }
 
-            records[recordIndex].status = 'resolved';
-            records[recordIndex].resolution = {
+            const record = records[recordIndex];
+            if (!record) {
+                throw new Error('Hotfix record is undefined');
+            }
+
+            record.status = 'resolved';
+            record.resolution = {
                 timestamp: new Date().toISOString(),
                 method,
                 notes: `Resolved via ${method}`

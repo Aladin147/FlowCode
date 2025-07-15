@@ -16,9 +16,9 @@ export class SecurityCommands {
     private configManager: ConfigurationManager;
     private toolManager: ToolManager;
 
-    constructor(configManager: ConfigurationManager) {
+    constructor(configManager: ConfigurationManager, securityValidator?: SecurityValidatorService) {
         this.configManager = configManager;
-        this.securityValidator = new SecurityValidatorService(configManager);
+        this.securityValidator = securityValidator || new SecurityValidatorService(configManager);
         this.toolManager = new ToolManager();
     }
 
@@ -28,7 +28,7 @@ export class SecurityCommands {
     public async initialize(): Promise<void> {
         try {
             SecurityCommands.contextLogger.info('Initializing security commands');
-            await this.securityValidator.initialize();
+            // SecurityValidator should already be initialized by the main extension
             SecurityCommands.contextLogger.info('Security commands initialized successfully');
         } catch (error) {
             SecurityCommands.contextLogger.error('Failed to initialize security commands', error as Error);

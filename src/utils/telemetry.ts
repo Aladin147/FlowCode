@@ -233,11 +233,12 @@ export class TelemetryService {
         configuration: TelemetryConfiguration;
         sessionDuration: number;
     } {
+        const sessionTimestamp = this.sessionId.split('-')[1];
         return {
             sessionId: this.sessionId,
             queuedEvents: this.eventQueue.length,
             configuration: this.configuration,
-            sessionDuration: Date.now() - parseInt(this.sessionId.split('-')[1])
+            sessionDuration: sessionTimestamp ? Date.now() - parseInt(sessionTimestamp) : 0
         };
     }
 

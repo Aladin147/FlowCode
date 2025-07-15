@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { logger } from './logger';
+import { EnhancedErrorHandler, ErrorContext } from './enhanced-error-handler';
 
 /**
  * Decorator for handling errors in service methods
@@ -53,10 +54,12 @@ export interface ErrorAction {
 
 /**
  * Error handler that provides user-friendly error messages and recovery actions
+ * Now uses EnhancedErrorHandler for better user experience
  */
 export class ErrorHandler {
     private static instance: ErrorHandler;
     private contextLogger = logger.createContextLogger('ErrorHandler');
+    private enhancedErrorHandler = EnhancedErrorHandler.getInstance();
 
     public static getInstance(): ErrorHandler {
         if (!ErrorHandler.instance) {
@@ -66,12 +69,17 @@ export class ErrorHandler {
     }
 
     /**
-     * Handle an error with user-friendly messaging
+     * Handle an error with user-friendly messaging using enhanced error handler
      */
     public async handleError(error: Error, context?: string): Promise<void> {
-        this.contextLogger.error(`Error in ${context || 'unknown context'}`, error);
-        const userError = this.createUserFriendlyError(error, context);
-        await this.showErrorToUser(userError);
+        const errorContext: ErrorContext = {
+            component: context?.split('.')[0] || 'Unknown',
+            operation: context?.split('.')[1] || 'unknown',
+            severity: 'error',
+            category: 'general'
+        };
+
+        await this.enhancedErrorHandler.handleError(error, errorContext);
     }
 
     /**
@@ -123,6 +131,36 @@ export class ErrorHandler {
             this.handleErrorSilently(error as Error, context);
             return fallbackValue;
         }
+    }
+
+    /**
+     * Create standardized error context for services
+     */
+    public static createErrorContext(
+        component: string,
+        operation: string,
+        severity: 'error' | 'warning' | 'info' = 'error',
+        category: 'system' | 'network' | 'configuration' | 'dependency' | 'general' = 'general'
+    ): ErrorContext {
+        return {
+            component,
+            operation,
+            severity,
+            category
+        };
+    }
+
+    /**
+     * Handle service error with enhanced context
+     */
+    public async handleServiceError(
+        error: Error,
+        component: string,
+        operation: string,
+        severity: 'error' | 'warning' | 'info' = 'error'
+    ): Promise<void> {
+        const context = ErrorHandler.createErrorContext(component, operation, severity);
+        await this.enhancedErrorHandler.handleError(error, context);
     }
 
     /**

@@ -378,7 +378,7 @@ export class TelemetryCommands {
                 placeHolder: 'What type of feedback would you like to provide?'
             });
 
-            if (!feedbackType) return;
+            if (!feedbackType) {return;}
 
             // Get rating
             const ratingOptions = [
@@ -393,7 +393,7 @@ export class TelemetryCommands {
                 placeHolder: 'How would you rate your experience?'
             });
 
-            if (!rating) return;
+            if (!rating) {return;}
 
             // Get comments
             const comments = await vscode.window.showInputBox({

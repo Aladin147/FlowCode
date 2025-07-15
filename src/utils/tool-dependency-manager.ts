@@ -518,8 +518,8 @@ export class ToolDependencyManager {
             const v1Part = v1Parts[i] || 0;
             const v2Part = v2Parts[i] || 0;
 
-            if (v1Part > v2Part) return 1;
-            if (v1Part < v2Part) return -1;
+            if (v1Part > v2Part) {return 1;}
+            if (v1Part < v2Part) {return -1;}
         }
 
         return 0;

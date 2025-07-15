@@ -555,7 +555,7 @@ export class ConfigurationManager {
             severity: 'critical',
             message: hasSecretStorage ? 'Using VS Code SecretStorage API' : 'SecretStorage not available - keys may be stored in plain text'
         });
-        if (!hasSecretStorage) score -= 50;
+        if (!hasSecretStorage) {score -= 50;}
 
         // Check 2: API key integrity
         const integrityResult = await this.verifyApiKeyIntegrity();
@@ -565,7 +565,7 @@ export class ConfigurationManager {
             severity: 'high',
             message: integrityResult.valid ? 'API key integrity verified' : `Integrity issues: ${integrityResult.issues.join(', ')}`
         });
-        if (!integrityResult.valid) score -= 30;
+        if (!integrityResult.valid) {score -= 30;}
 
         // Check 3: Encryption status
         let encryptionEnabled = false;
@@ -579,7 +579,7 @@ export class ConfigurationManager {
             severity: 'high',
             message: encryptionEnabled ? 'API keys are encrypted at rest' : 'API keys are not encrypted'
         });
-        if (!encryptionEnabled) score -= 25;
+        if (!encryptionEnabled) {score -= 25;}
 
         // Check 4: Key rotation status
         const keyStats = await this.getApiKeyStats();
@@ -590,7 +590,7 @@ export class ConfigurationManager {
             severity: 'medium',
             message: rotationCurrent ? 'Key rotation is current' : 'Key rotation is due'
         });
-        if (!rotationCurrent) score -= 15;
+        if (!rotationCurrent) {score -= 15;}
 
         // Check 5: Configuration security
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
@@ -601,7 +601,7 @@ export class ConfigurationManager {
             severity: 'critical',
             message: hasPlaintextKey ? 'API key found in plaintext settings' : 'No plaintext keys in settings'
         });
-        if (hasPlaintextKey) score -= 40;
+        if (hasPlaintextKey) {score -= 40;}
 
         // Check 6: Key age and usage
         if (keyStats) {
@@ -613,7 +613,7 @@ export class ConfigurationManager {
                 severity: 'medium',
                 message: ageAppropriate ? `Key age: ${Math.floor(keyAge)} days` : `Key is too old: ${Math.floor(keyAge)} days`
             });
-            if (!ageAppropriate) score -= 10;
+            if (!ageAppropriate) {score -= 10;}
         }
 
         const passed = checks.every(check => check.passed || check.severity === 'low');

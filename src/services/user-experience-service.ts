@@ -263,13 +263,25 @@ export class UserExperienceService {
                     validationTimeout = setTimeout(async () => {
                         if (options.validateInput) {
                             const error = options.validateInput(value);
-                            inputBox.validationMessage = error;
+                            // Handle sync validation result
+                            if (error && typeof error === 'object' && 'then' in error) {
+                                // It's a Promise/Thenable, await it
+                                error.then(result => {
+                                    inputBox.validationMessage = result || undefined;
+                                });
+                            } else {
+                                inputBox.validationMessage = error || undefined;
+                            }
                         } else if (options.validateAsync) {
                             if (options.showProgress) {
                                 inputBox.busy = true;
                             }
-                            const error = await options.validateAsync(value);
-                            inputBox.validationMessage = error;
+                            try {
+                                const error = await options.validateAsync(value);
+                                inputBox.validationMessage = error || undefined;
+                            } catch (err) {
+                                inputBox.validationMessage = 'Validation error';
+                            }
                             if (options.showProgress) {
                                 inputBox.busy = false;
                             }

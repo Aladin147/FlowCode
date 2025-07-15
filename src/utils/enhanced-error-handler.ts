@@ -4,6 +4,8 @@ import { logger } from './logger';
 export interface ErrorContext {
     operation: string;
     component: string;
+    severity?: 'info' | 'warning' | 'error' | 'critical';
+    category?: 'user' | 'system' | 'network' | 'configuration' | 'dependency' | 'general';
     userId?: string;
     workspaceRoot?: string;
     additionalInfo?: { [key: string]: any };
@@ -43,6 +45,7 @@ export interface ErrorReport {
 }
 
 export class EnhancedErrorHandler {
+    private static instance: EnhancedErrorHandler;
     private contextLogger = logger.createContextLogger('EnhancedErrorHandler');
     private errorReports: Map<string, ErrorReport> = new Map();
     private errorPatterns: Map<RegExp, (error: Error, context: ErrorContext) => UserFriendlyError> = new Map();
@@ -50,6 +53,13 @@ export class EnhancedErrorHandler {
     constructor() {
         this.initializeErrorPatterns();
         this.contextLogger.info('EnhancedErrorHandler initialized');
+    }
+
+    public static getInstance(): EnhancedErrorHandler {
+        if (!EnhancedErrorHandler.instance) {
+            EnhancedErrorHandler.instance = new EnhancedErrorHandler();
+        }
+        return EnhancedErrorHandler.instance;
     }
 
     /**

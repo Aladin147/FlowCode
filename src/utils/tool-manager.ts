@@ -299,23 +299,34 @@ export class ToolManager {
     private static async executeCommand(command: string[]): Promise<{ success: boolean; output: string; error?: string }> {
         return new Promise((resolve) => {
             const [cmd, ...args] = command;
-            const process = spawn(cmd, args, { 
-                stdio: 'pipe',
+
+            // Ensure cmd is defined
+            if (!cmd) {
+                resolve({
+                    success: false,
+                    output: '',
+                    error: 'No command specified'
+                });
+                return;
+            }
+
+            const process = spawn(cmd, args, {
+                stdio: ['pipe', 'pipe', 'pipe'],
                 timeout: 10000 // 10 second timeout
             });
 
             let output = '';
             let error = '';
 
-            process.stdout?.on('data', (data) => {
+            process.stdout?.on('data', (data: Buffer) => {
                 output += data.toString();
             });
 
-            process.stderr?.on('data', (data) => {
+            process.stderr?.on('data', (data: Buffer) => {
                 error += data.toString();
             });
 
-            process.on('close', (code) => {
+            process.on('close', (code: number | null) => {
                 resolve({
                     success: code === 0,
                     output: output.trim(),
@@ -323,7 +334,7 @@ export class ToolManager {
                 });
             });
 
-            process.on('error', (err) => {
+            process.on('error', (err: Error) => {
                 resolve({
                     success: false,
                     output: '',

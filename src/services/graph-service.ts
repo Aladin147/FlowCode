@@ -431,16 +431,23 @@ export class GraphService {
         // Find functions
         const functionRegex = /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/g;
         let match;
-        
+
         while ((match = functionRegex.exec(content)) !== null) {
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+            const functionName = match[1];
+
+            // Skip if line or function name is undefined
+            if (!line || !functionName) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
-                id: `func_${match[1]}`,
+                id: `func_${functionName}`,
                 type: 'function',
-                name: match[1],
+                name: functionName,
                 file: filePath,
                 line: lineIndex + 1,
                 column: column,
@@ -453,12 +460,19 @@ export class GraphService {
         while ((match = classRegex.exec(content)) !== null) {
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+            const className = match[1];
+
+            // Skip if line or class name is undefined
+            if (!line || !className) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
-                id: `class_${match[1]}`,
+                id: `class_${className}`,
                 type: 'class',
-                name: match[1],
+                name: className,
                 file: filePath,
                 line: lineIndex + 1,
                 column: column
@@ -470,12 +484,19 @@ export class GraphService {
         while ((match = importRegex.exec(content)) !== null) {
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+            const importPath = match[1];
+
+            // Skip if line or import path is undefined
+            if (!line || !importPath) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
-                id: `import_${match[1]}`,
+                id: `import_${importPath}`,
                 type: 'import',
-                name: match[1],
+                name: importPath,
                 file: filePath,
                 line: lineIndex + 1,
                 column: column
@@ -492,16 +513,23 @@ export class GraphService {
         // Find functions
         const functionRegex = /def\s+(\w+)\s*\(/g;
         let match;
-        
+
         while ((match = functionRegex.exec(content)) !== null) {
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+            const functionName = match[1];
+
+            // Skip if line or function name is undefined
+            if (!line || !functionName) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
-                id: `func_${match[1]}`,
+                id: `func_${functionName}`,
                 type: 'function',
-                name: match[1],
+                name: functionName,
                 file: filePath,
                 line: lineIndex + 1,
                 column: column,
@@ -514,12 +542,19 @@ export class GraphService {
         while ((match = classRegex.exec(content)) !== null) {
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+            const className = match[1];
+
+            // Skip if line or class name is undefined
+            if (!line || !className) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
-                id: `class_${match[1]}`,
+                id: `class_${className}`,
                 type: 'class',
-                name: match[1],
+                name: className,
                 file: filePath,
                 line: lineIndex + 1,
                 column: column
@@ -532,8 +567,14 @@ export class GraphService {
             const moduleName = match[1] || match[2];
             const lineIndex = content.substring(0, match.index).split('\n').length - 1;
             const line = lines[lineIndex];
+
+            // Skip if line or module name is undefined
+            if (!line || !moduleName) {
+                continue;
+            }
+
             const column = line.indexOf(match[0]) + 1;
-            
+
             nodes.push({
                 id: `import_${moduleName}`,
                 type: 'import',
@@ -548,15 +589,23 @@ export class GraphService {
     }
 
     private extractSignature(lines: string[], startLine: number): string {
+        // Check if startLine is valid
+        if (startLine < 0 || startLine >= lines.length || !lines[startLine]) {
+            return '';
+        }
+
         let signature = lines[startLine].trim();
         let lineIndex = startLine + 1;
-        
+
         // Continue until we find the closing parenthesis or opening brace
         while (lineIndex < lines.length && !signature.includes(')') && !signature.includes(':')) {
-            signature += ' ' + lines[lineIndex].trim();
+            const currentLine = lines[lineIndex];
+            if (currentLine) {
+                signature += ' ' + currentLine.trim();
+            }
             lineIndex++;
         }
-        
+
         return signature.substring(0, 100) + (signature.length > 100 ? '...' : '');
     }
 

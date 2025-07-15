@@ -338,7 +338,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+
     "compile": "tsc -p ./tsconfig.production.json",
     "compile:dev": "tsc -p ./",
     "build:production": "npm run compile && npm run package",

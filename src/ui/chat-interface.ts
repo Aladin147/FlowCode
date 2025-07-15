@@ -1346,6 +1346,152 @@ export class ChatInterface {
             .architect-button:hover {
                 background: var(--vscode-button-hoverBackground) !important;
             }
+
+            /* Architecture Visualization Styles */
+            .architecture-viz, .dependency-viz {
+                margin: 10px 0;
+                padding: 12px;
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 6px;
+                font-size: 12px;
+            }
+
+            .architecture-viz h4, .dependency-viz h4 {
+                margin: 0 0 10px 0;
+                color: var(--vscode-foreground);
+                font-size: 13px;
+            }
+
+            .metrics-grid {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .metric {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .metric-label {
+                min-width: 70px;
+                font-weight: 500;
+                color: var(--vscode-foreground);
+            }
+
+            .metric-bar {
+                flex: 1;
+                height: 16px;
+                background: var(--vscode-input-background);
+                border-radius: 8px;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .metric-fill {
+                height: 100%;
+                border-radius: 8px;
+                transition: width 0.3s ease;
+            }
+
+            .metric-fill.complexity {
+                background: linear-gradient(90deg, #4CAF50, #FF9800, #F44336);
+            }
+
+            .metric-fill.coupling {
+                background: linear-gradient(90deg, #4CAF50, #FF9800, #F44336);
+            }
+
+            .metric-fill.cohesion {
+                background: linear-gradient(90deg, #F44336, #FF9800, #4CAF50);
+            }
+
+            .metric-value {
+                position: absolute;
+                right: 6px;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--vscode-foreground);
+                text-shadow: 0 0 3px var(--vscode-editor-background);
+            }
+
+            .suggestions {
+                margin-top: 10px;
+                padding-top: 8px;
+                border-top: 1px solid var(--vscode-panel-border);
+            }
+
+            .suggestions ul {
+                margin: 5px 0 0 0;
+                padding-left: 16px;
+            }
+
+            .suggestions li {
+                margin: 3px 0;
+                color: var(--vscode-foreground);
+            }
+
+            /* Dependency Visualization Styles */
+            .dependency-grid {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .dependency-section {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .dependency-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .dependency-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 8px;
+                background: var(--vscode-input-background);
+                border-radius: 4px;
+                font-size: 11px;
+            }
+
+            .dep-type {
+                background: var(--vscode-badge-background);
+                color: var(--vscode-badge-foreground);
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+                min-width: 50px;
+                text-align: center;
+            }
+
+            .dep-name {
+                font-weight: 500;
+                color: var(--vscode-foreground);
+                flex: 1;
+            }
+
+            .dep-file {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+            }
+
+            .more-items {
+                color: var(--vscode-descriptionForeground);
+                font-style: italic;
+                text-align: center;
+                padding: 4px;
+            }
             
             .input-wrapper {
                 display: flex;
@@ -1415,24 +1561,132 @@ export class ChatInterface {
      */
     private renderMessageMetadata(metadata: any): string {
         const parts = [];
-        
+
         if (metadata.cost) {
             parts.push(`💰 $${metadata.cost.toFixed(4)}`);
         }
-        
+
         if (metadata.tokens) {
             parts.push(`🔤 ${metadata.tokens} tokens`);
         }
-        
+
         if (metadata.securityWarnings?.length) {
             parts.push(`⚠️ ${metadata.securityWarnings.length} security warnings`);
         }
-        
+
         if (metadata.qualityIssues?.length) {
             parts.push(`🔍 ${metadata.qualityIssues.length} quality issues`);
         }
-        
-        return parts.length ? `<div class="message-metadata"><span>${parts.join(' • ')}</span></div>` : '';
+
+        let metadataHtml = parts.length ? `<div class="message-metadata"><span>${parts.join(' • ')}</span></div>` : '';
+
+        // Add architecture visualization if available
+        if (metadata.architecturalInsights) {
+            metadataHtml += this.renderArchitectureVisualization(metadata.architecturalInsights);
+        }
+
+        // Add dependency visualization if available
+        if (metadata.dependencyAnalysis) {
+            metadataHtml += this.renderDependencyVisualization(metadata.dependencyAnalysis);
+        }
+
+        return metadataHtml;
+    }
+
+    /**
+     * Render architecture visualization
+     */
+    private renderArchitectureVisualization(insights: any): string {
+        const complexity = insights.complexity || 0;
+        const coupling = (insights.coupling || 0) * 100;
+        const cohesion = (insights.cohesion || 0) * 100;
+
+        return `
+            <div class="architecture-viz">
+                <h4>🏗️ Architecture Analysis</h4>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Complexity</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill complexity" style="width: ${Math.min(complexity * 10, 100)}%"></div>
+                            <span class="metric-value">${complexity.toFixed(1)}</span>
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Coupling</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill coupling" style="width: ${coupling}%"></div>
+                            <span class="metric-value">${coupling.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Cohesion</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill cohesion" style="width: ${cohesion}%"></div>
+                            <span class="metric-value">${cohesion.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                </div>
+                ${insights.suggestions?.length ? `
+                    <div class="suggestions">
+                        <strong>💡 Suggestions:</strong>
+                        <ul>
+                            ${insights.suggestions.map((s: string) => `<li>${s}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    /**
+     * Render dependency visualization
+     */
+    private renderDependencyVisualization(analysis: any): string {
+        const dependencies = analysis.dependencies || [];
+        const dependents = analysis.dependents || [];
+
+        if (dependencies.length === 0 && dependents.length === 0) {
+            return '';
+        }
+
+        return `
+            <div class="dependency-viz">
+                <h4>🔗 Dependency Analysis</h4>
+                <div class="dependency-grid">
+                    ${dependencies.length > 0 ? `
+                        <div class="dependency-section">
+                            <strong>Dependencies (${dependencies.length}):</strong>
+                            <div class="dependency-list">
+                                ${dependencies.slice(0, 5).map((dep: any) => `
+                                    <div class="dependency-item">
+                                        <span class="dep-type">${dep.type}</span>
+                                        <span class="dep-name">${dep.name}</span>
+                                        <span class="dep-file">${dep.file.split('/').pop()}</span>
+                                    </div>
+                                `).join('')}
+                                ${dependencies.length > 5 ? `<div class="more-items">... and ${dependencies.length - 5} more</div>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${dependents.length > 0 ? `
+                        <div class="dependency-section">
+                            <strong>Dependents (${dependents.length}):</strong>
+                            <div class="dependency-list">
+                                ${dependents.slice(0, 5).map((dep: any) => `
+                                    <div class="dependency-item">
+                                        <span class="dep-type">${dep.type}</span>
+                                        <span class="dep-name">${dep.name}</span>
+                                        <span class="dep-file">${dep.file.split('/').pop()}</span>
+                                    </div>
+                                `).join('')}
+                                ${dependents.length > 5 ? `<div class="more-items">... and ${dependents.length - 5} more</div>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
     }
 
     /**

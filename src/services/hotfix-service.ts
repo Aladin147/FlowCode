@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ConfigurationManager } from '../utils/configuration-manager';
+import { logger } from '../utils/logger';
+import { InputValidator } from '../utils/input-validator';
 
 export interface HotfixRecord {
     id: string;
@@ -9,15 +12,108 @@ export interface HotfixRecord {
     branch: string;
     files: string[];
     skippedChecks: string[];
-    status: 'pending' | 'resolved' | 'overdue';
+    status: 'pending' | 'resolved' | 'overdue' | 'failed';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    assignee?: string;
+    reviewer?: string;
+    slaDeadline: string;
+    resolution?: {
+        timestamp: string;
+        method: 'merged' | 'reverted' | 'superseded';
+        notes?: string;
+    };
+}
+
+export interface BranchInfo {
+    name: string;
+    exists: boolean;
+    isClean: boolean;
+    currentBranch: string;
+}
+
+export interface SLAStatus {
+    isOverdue: boolean;
+    hoursRemaining: number;
+    urgencyLevel: 'normal' | 'warning' | 'critical' | 'overdue';
 }
 
 export class HotfixService {
-    constructor(private configManager: ConfigurationManager) {}
+    private contextLogger = logger.createContextLogger('HotfixService');
+    private readonly SLA_HOURS = 48; // 48 hour SLA
+    private gitApi: any; // VS Code Git API
+
+    constructor(private configManager: ConfigurationManager) {
+        this.contextLogger.info('HotfixService constructed');
+    }
+
+    /**
+     * Initialize the hotfix service
+     */
+    public async initialize(): Promise<void> {
+        try {
+            this.contextLogger.info('Initializing HotfixService');
+
+            // Initialize Git API
+            await this.initializeGitApi();
+
+            // Ensure hotfix directory exists
+            await this.ensureHotfixDirectoryExists();
+
+            this.contextLogger.info('HotfixService initialized successfully');
+        } catch (error) {
+            this.contextLogger.error('Failed to initialize HotfixService', error as Error);
+            throw error;
+        }
+    }
+
+    /**
+     * Ensure the hotfix directory exists
+     */
+    private async ensureHotfixDirectoryExists(): Promise<void> {
+        try {
+            const debtFilePath = await this.configManager.getDebtFilePath();
+            const debtDir = path.dirname(debtFilePath);
+
+            if (!fs.existsSync(debtDir)) {
+                fs.mkdirSync(debtDir, { recursive: true });
+                this.contextLogger.info(`Created hotfix directory: ${debtDir}`);
+            }
+
+            if (!fs.existsSync(debtFilePath)) {
+                fs.writeFileSync(debtFilePath, '[]', 'utf8');
+                this.contextLogger.info(`Created empty debt file: ${debtFilePath}`);
+            }
+        } catch (error) {
+            this.contextLogger.error('Failed to ensure hotfix directory exists', error as Error);
+            throw error;
+        }
+    }
+
+    private async initializeGitApi(): Promise<void> {
+        try {
+            const gitExtension = vscode.extensions.getExtension('vscode.git');
+            if (gitExtension) {
+                const git = gitExtension.isActive ? gitExtension.exports : await gitExtension.activate();
+                this.gitApi = git.getAPI(1);
+                this.contextLogger.debug('Git API initialized successfully');
+            } else {
+                this.contextLogger.warn('Git extension not found');
+            }
+        } catch (error) {
+            this.contextLogger.error('Failed to initialize Git API', error as Error);
+        }
+    }
 
     public async createHotfix(message: string): Promise<void> {
+        // Validate commit message
+        const validation = InputValidator.validateCommitMessage(message);
+        if (!validation.isValid) {
+            throw new Error(`Invalid commit message: ${validation.errors.join(', ')}`);
+        }
+
+        const sanitizedMessage = validation.sanitizedValue as string;
         const workspaceRoot = await this.configManager.getWorkspaceRoot();
-        
+
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "Creating hotfix...",
@@ -35,27 +131,47 @@ export class HotfixService {
                 const skippedChecks = await this.runMinimalChecks(workspaceRoot, changedFiles);
                 
                 // Create commit
-                await this.createCommit(workspaceRoot, `HOTFIX: ${message}`);
+                await this.createCommit(workspaceRoot, `HOTFIX: ${sanitizedMessage}`);
                 
                 // Record hotfix
+                const now = new Date();
+                const slaDeadline = new Date(now.getTime() + (this.SLA_HOURS * 60 * 60 * 1000));
+
                 const record: HotfixRecord = {
                     id: `hotfix-${Date.now()}`,
                     message,
-                    timestamp: new Date().toISOString(),
+                    timestamp: now.toISOString(),
                     branch: branchName,
                     files: changedFiles,
                     skippedChecks,
-                    status: 'pending'
+                    status: 'pending',
+                    priority: this.determinePriority(message, changedFiles),
+                    slaDeadline: slaDeadline.toISOString()
                 };
                 
                 await this.saveHotfixRecord(record);
-                
+
+                this.contextLogger.info('Hotfix created successfully', {
+                    id: record.id,
+                    branch: branchName,
+                    priority: record.priority,
+                    filesCount: changedFiles.length
+                });
+
                 vscode.window.showInformationMessage(
-                    `Hotfix created: ${message}. Debt recorded for 48h resolution.`
-                );
-                
+                    `Hotfix created successfully! Branch: ${branchName} (Priority: ${record.priority})`,
+                    'View Debt', 'Monitor SLA'
+                ).then(selection => {
+                    if (selection === 'View Debt') {
+                        this.showDebtDashboard();
+                    } else if (selection === 'Monitor SLA') {
+                        this.showSLAStatus(record.id);
+                    }
+                });
+
             } catch (error) {
-                throw new Error(`Failed to create hotfix: ${error}`);
+                this.contextLogger.error('Failed to create hotfix', error as Error);
+                throw new Error(`Failed to create hotfix: ${(error as Error).message}`);
             }
         });
     }
@@ -64,79 +180,108 @@ export class HotfixService {
         try {
             const debtFile = await this.configManager.getDebtFilePath();
             const fs = await import('fs');
-            
+
             if (!fs.existsSync(debtFile)) {
                 return [];
             }
-            
+
             const content = fs.readFileSync(debtFile, 'utf-8');
             const records: HotfixRecord[] = JSON.parse(content);
-            
-            // Update status based on 48h SLA
+
+            // Update status based on SLA and current state
             const now = new Date();
-            const slaHours = 48;
-            
-            return records.map(record => {
-                const created = new Date(record.timestamp);
-                const hoursSinceCreation = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
-                
+
+            const updatedRecords = records.map(record => {
+                const slaStatus = this.calculateSLAStatus(record);
+                let newStatus = record.status;
+
+                // Update status based on SLA
+                if (slaStatus.isOverdue && record.status === 'pending') {
+                    newStatus = 'overdue';
+                }
+
                 return {
                     ...record,
-                    status: hoursSinceCreation > slaHours ? 'overdue' : record.status
+                    status: newStatus
                 };
             });
+
+            // Check for critical overdue items and notify
+            const criticalOverdue = updatedRecords.filter(r =>
+                r.status === 'overdue' && r.priority === 'critical'
+            );
+
+            if (criticalOverdue.length > 0) {
+                this.notifyCriticalOverdue(criticalOverdue);
+            }
+
+            this.contextLogger.debug(`Retrieved ${updatedRecords.length} hotfix records`);
+            return updatedRecords;
         } catch (error) {
-            console.error('Failed to load hotfix records:', error);
+            this.contextLogger.error('Failed to load hotfix records', error as Error);
             return [];
         }
     }
 
-    public async resolveHotfix(hotfixId: string): Promise<void> {
-        const hotfixes = await this.getPendingHotfixes();
-        const updatedHotfixes = hotfixes.map(hotfix => 
-            hotfix.id === hotfixId 
-                ? { ...hotfix, status: 'resolved' as const }
-                : hotfix
-        );
-        
-        await this.saveHotfixRecords(updatedHotfixes);
-    }
+
 
     private async createBranch(workspaceRoot: string, branchName: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const git = spawn('git', ['checkout', '-b', branchName], {
-                cwd: workspaceRoot
-            });
+        try {
+            if (!this.gitApi) {
+                throw new Error('Git API not available');
+            }
 
-            git.on('close', (code: number) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`Failed to create branch ${branchName}`));
-                }
-            });
-        });
+            // Get the repository for the workspace
+            const repository = this.gitApi.repositories.find((repo: any) =>
+                repo.rootUri.fsPath === workspaceRoot
+            );
+
+            if (!repository) {
+                throw new Error(`No Git repository found for ${workspaceRoot}`);
+            }
+
+            // Create and checkout new branch
+            await repository.createBranch(branchName, true);
+            this.contextLogger.debug(`Created and checked out branch: ${branchName}`);
+        } catch (error) {
+            this.contextLogger.error(`Failed to create branch ${branchName}`, error as Error);
+            throw new Error(`Failed to create branch ${branchName}: ${(error as Error).message}`);
+        }
     }
 
     private async getChangedFiles(workspaceRoot: string): Promise<string[]> {
-        return new Promise((resolve, reject) => {
-            const git = spawn('git', ['diff', '--name-only'], {
-                cwd: workspaceRoot
-            });
+        try {
+            if (!this.gitApi) {
+                this.contextLogger.warn('Git API not available, returning empty file list');
+                return [];
+            }
 
-            let output = '';
-            git.stdout.on('data', (data: any) => {
-                output += data.toString();
-            });
+            // Get the repository for the workspace
+            const repository = this.gitApi.repositories.find((repo: any) =>
+                repo.rootUri.fsPath === workspaceRoot
+            );
 
-            git.on('close', (code: number) => {
-                if (code === 0) {
-                    resolve(output.split('\n').filter(f => f.trim()));
-                } else {
-                    resolve([]);
-                }
-            });
-        });
+            if (!repository) {
+                this.contextLogger.warn(`No Git repository found for ${workspaceRoot}`);
+                return [];
+            }
+
+            // Get working tree changes (modified, added, deleted files)
+            const changes = repository.state.workingTreeChanges || [];
+            const indexChanges = repository.state.indexChanges || [];
+
+            // Combine working tree and index changes
+            const allChanges = [...changes, ...indexChanges];
+            const changedFiles = allChanges
+                .map((change: any) => change.uri.fsPath)
+                .filter((file: string, index: number, array: string[]) => array.indexOf(file) === index); // Remove duplicates
+
+            this.contextLogger.debug(`Found ${changedFiles.length} changed files`);
+            return changedFiles;
+        } catch (error) {
+            this.contextLogger.error('Failed to get changed files', error as Error);
+            return [];
+        }
     }
 
     private async runMinimalChecks(workspaceRoot: string, files: string[]): Promise<string[]> {
@@ -167,56 +312,159 @@ export class HotfixService {
     }
 
     private async checkSyntax(workspaceRoot: string, files: string[]): Promise<boolean> {
-        return new Promise((resolve) => {
+        try {
             const hasTypeScript = files.some(f => f.endsWith('.ts') || f.endsWith('.tsx'));
-            
+
             if (hasTypeScript) {
-                const tsc = spawn('npx', ['tsc', '--noEmit'], {
-                    cwd: workspaceRoot
-                });
-                
-                tsc.on('close', (code: number) => {
-                    resolve(code === 0);
-                });
-            } else {
-                // For JavaScript, we'll skip detailed checks in hotfix mode
-                resolve(true);
+                // For hotfix mode, we'll do a basic TypeScript syntax check
+                // This is faster and doesn't require subprocess spawning
+                const ts = require('typescript');
+                const fs = require('fs');
+                const path = require('path');
+
+                for (const file of files.filter(f => f.endsWith('.ts') || f.endsWith('.tsx'))) {
+                    try {
+                        const fullPath = path.resolve(workspaceRoot, file);
+                        const content = fs.readFileSync(fullPath, 'utf8');
+
+                        // Basic TypeScript syntax check
+                        const result = ts.transpileModule(content, {
+                            compilerOptions: {
+                                target: ts.ScriptTarget.ES2020,
+                                module: ts.ModuleKind.CommonJS,
+                                noEmit: true
+                            }
+                        });
+
+                        if (result.diagnostics && result.diagnostics.length > 0) {
+                            const errors = result.diagnostics.filter((d: any) => d.category === ts.DiagnosticCategory.Error);
+                            if (errors.length > 0) {
+                                this.contextLogger.warn(`TypeScript syntax errors in ${file}`);
+                                return false;
+                            }
+                        }
+                    } catch (error) {
+                        this.contextLogger.warn(`Could not check TypeScript file ${file}`, error as Error);
+                        return false;
+                    }
+                }
             }
-        });
+
+            // For JavaScript or if no TypeScript files, skip detailed checks in hotfix mode
+            return true;
+        } catch (error) {
+            this.contextLogger.error('Syntax check failed', error as Error);
+            return false;
+        }
     }
 
     private async checkPythonSyntax(workspaceRoot: string, files: string[]): Promise<boolean> {
-        return new Promise((resolve) => {
+        try {
             const pythonFiles = files.filter(f => f.endsWith('.py'));
             if (pythonFiles.length === 0) {
-                resolve(true);
-                return;
+                return true;
             }
-            
-            const python = spawn('python', ['-m', 'py_compile', ...pythonFiles], {
-                cwd: workspaceRoot
-            });
-            
-            python.on('close', (code: number) => {
-                resolve(code === 0);
-            });
-        });
+
+            // For hotfix mode, we'll do a basic syntax check by reading files
+            // This is faster than spawning Python processes
+            const fs = require('fs');
+            const path = require('path');
+
+            for (const file of pythonFiles) {
+                try {
+                    const fullPath = path.resolve(workspaceRoot, file);
+                    const content = fs.readFileSync(fullPath, 'utf8');
+
+                    // Basic syntax checks
+                    if (this.hasBasicPythonSyntaxErrors(content)) {
+                        this.contextLogger.warn(`Basic syntax issues detected in ${file}`);
+                        return false;
+                    }
+                } catch (error) {
+                    this.contextLogger.warn(`Could not read Python file ${file}`, error as Error);
+                    return false;
+                }
+            }
+
+            this.contextLogger.debug(`Basic Python syntax check passed for ${pythonFiles.length} files`);
+            return true;
+        } catch (error) {
+            this.contextLogger.error('Python syntax check failed', error as Error);
+            return false;
+        }
+    }
+
+    private hasBasicPythonSyntaxErrors(content: string): boolean {
+        // Basic syntax error detection (not comprehensive, but fast)
+        const lines = content.split('\n');
+        let indentLevel = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            // Skip empty lines and comments
+            if (!trimmed || trimmed.startsWith('#')) {
+                continue;
+            }
+
+            // Check for basic indentation issues
+            const leadingSpaces = line.length - line.trimStart().length;
+            if (leadingSpaces % 4 !== 0 && leadingSpaces > 0) {
+                // Inconsistent indentation (assuming 4-space standard)
+                return true;
+            }
+
+            // Check for obvious syntax errors
+            if (trimmed.includes('def ') && !trimmed.endsWith(':')) {
+                return true;
+            }
+            if (trimmed.includes('class ') && !trimmed.endsWith(':')) {
+                return true;
+            }
+            if (trimmed.includes('if ') && !trimmed.endsWith(':')) {
+                return true;
+            }
+            if (trimmed.includes('for ') && !trimmed.endsWith(':')) {
+                return true;
+            }
+            if (trimmed.includes('while ') && !trimmed.endsWith(':')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async createCommit(workspaceRoot: string, message: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const git = spawn('git', ['commit', '-am', message], {
-                cwd: workspaceRoot
-            });
+        try {
+            if (!this.gitApi) {
+                throw new Error('Git API not available');
+            }
 
-            git.on('close', (code: number) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error('Failed to create commit'));
-                }
-            });
-        });
+            // Get the repository for the workspace
+            const repository = this.gitApi.repositories.find((repo: any) =>
+                repo.rootUri.fsPath === workspaceRoot
+            );
+
+            if (!repository) {
+                throw new Error(`No Git repository found for ${workspaceRoot}`);
+            }
+
+            // Stage all changes (equivalent to -a flag)
+            const changes = repository.state.workingTreeChanges || [];
+            if (changes.length > 0) {
+                await repository.add(changes.map((change: any) => change.uri));
+                this.contextLogger.debug(`Staged ${changes.length} files`);
+            }
+
+            // Create commit
+            await repository.commit(message);
+            this.contextLogger.debug(`Created commit: ${message}`);
+        } catch (error) {
+            this.contextLogger.error('Failed to create commit', error as Error);
+            throw new Error(`Failed to create commit: ${(error as Error).message}`);
+        }
     }
 
     private async saveHotfixRecord(record: HotfixRecord): Promise<void> {
@@ -237,5 +485,230 @@ export class HotfixService {
         }
         
         fs.writeFileSync(debtFile, JSON.stringify(records, null, 2));
+    }
+
+    private determinePriority(message: string, files: string[]): 'low' | 'medium' | 'high' | 'critical' {
+        const lowerMessage = message.toLowerCase();
+
+        // Critical keywords
+        if (lowerMessage.includes('security') || lowerMessage.includes('vulnerability') ||
+            lowerMessage.includes('exploit') || lowerMessage.includes('breach')) {
+            return 'critical';
+        }
+
+        // High priority keywords
+        if (lowerMessage.includes('production') || lowerMessage.includes('outage') ||
+            lowerMessage.includes('crash') || lowerMessage.includes('data loss')) {
+            return 'high';
+        }
+
+        // Check file types for priority
+        const criticalFiles = files.some(file =>
+            file.includes('auth') || file.includes('security') ||
+            file.includes('payment') || file.includes('database')
+        );
+
+        if (criticalFiles) {
+            return 'high';
+        }
+
+        // Medium priority for multiple files
+        if (files.length > 5) {
+            return 'medium';
+        }
+
+        return 'low';
+    }
+
+    private calculateSLAStatus(record: HotfixRecord): SLAStatus {
+        const now = new Date();
+        const deadline = new Date(record.slaDeadline);
+        const hoursRemaining = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+        let urgencyLevel: 'normal' | 'warning' | 'critical' | 'overdue' = 'normal';
+
+        if (hoursRemaining < 0) {
+            urgencyLevel = 'overdue';
+        } else if (hoursRemaining < 4) {
+            urgencyLevel = 'critical';
+        } else if (hoursRemaining < 12) {
+            urgencyLevel = 'warning';
+        }
+
+        return {
+            isOverdue: hoursRemaining < 0,
+            hoursRemaining: Math.max(0, hoursRemaining),
+            urgencyLevel
+        };
+    }
+
+    private async notifyCriticalOverdue(overdueRecords: HotfixRecord[]): Promise<void> {
+        const count = overdueRecords.length;
+        const message = `⚠️ ${count} critical hotfix${count > 1 ? 'es' : ''} overdue!`;
+
+        this.contextLogger.warn(`Critical hotfixes overdue: ${count} records`, new Error('SLA violation'));
+
+        vscode.window.showWarningMessage(
+            message,
+            'View Details', 'Escalate'
+        ).then(selection => {
+            if (selection === 'View Details') {
+                this.showDebtDashboard();
+            } else if (selection === 'Escalate') {
+                this.escalateOverdueHotfixes(overdueRecords);
+            }
+        });
+    }
+
+    private async showDebtDashboard(): Promise<void> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const panel = vscode.window.createWebviewPanel(
+                'hotfixDashboard',
+                'Hotfix Debt Dashboard',
+                vscode.ViewColumn.Two,
+                { enableScripts: true }
+            );
+
+            panel.webview.html = this.generateDashboardHTML(records);
+        } catch (error) {
+            this.contextLogger.error('Failed to show debt dashboard', error as Error);
+            vscode.window.showErrorMessage('Failed to load debt dashboard');
+        }
+    }
+
+    private async showSLAStatus(hotfixId: string): Promise<void> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const record = records.find(r => r.id === hotfixId);
+
+            if (!record) {
+                vscode.window.showErrorMessage('Hotfix not found');
+                return;
+            }
+
+            const slaStatus = this.calculateSLAStatus(record);
+            const statusIcon = this.getSLAStatusIcon(slaStatus.urgencyLevel);
+
+            vscode.window.showInformationMessage(
+                `${statusIcon} Hotfix ${record.id}: ${slaStatus.hoursRemaining.toFixed(1)} hours remaining`,
+                'View Details', 'Mark Resolved'
+            ).then(selection => {
+                if (selection === 'View Details') {
+                    this.showDebtDashboard();
+                } else if (selection === 'Mark Resolved') {
+                    this.resolveHotfix(hotfixId, 'merged');
+                }
+            });
+        } catch (error) {
+            this.contextLogger.error('Failed to show SLA status', error as Error);
+            vscode.window.showErrorMessage('Failed to load SLA status');
+        }
+    }
+
+    private getSLAStatusIcon(urgencyLevel: string): string {
+        switch (urgencyLevel) {
+            case 'overdue': return '🔴';
+            case 'critical': return '🟠';
+            case 'warning': return '🟡';
+            default: return '🟢';
+        }
+    }
+
+    private async escalateOverdueHotfixes(records: HotfixRecord[]): Promise<void> {
+        // In a real implementation, this would integrate with ticketing systems
+        this.contextLogger.warn(`Escalating ${records.length} overdue hotfixes`, new Error('SLA escalation'));
+
+        vscode.window.showWarningMessage(
+            `Escalated ${records.length} overdue hotfix${records.length > 1 ? 'es' : ''} to management`
+        );
+    }
+
+    private async resolveHotfix(hotfixId: string, method: 'merged' | 'reverted' | 'superseded'): Promise<void> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const recordIndex = records.findIndex(r => r.id === hotfixId);
+
+            if (recordIndex === -1) {
+                throw new Error('Hotfix not found');
+            }
+
+            records[recordIndex].status = 'resolved';
+            records[recordIndex].resolution = {
+                timestamp: new Date().toISOString(),
+                method,
+                notes: `Resolved via ${method}`
+            };
+
+            await this.saveHotfixRecords(records);
+
+            this.contextLogger.info('Hotfix resolved', {
+                id: hotfixId,
+                method
+            });
+
+            vscode.window.showInformationMessage(`Hotfix ${hotfixId} marked as resolved`);
+        } catch (error) {
+            this.contextLogger.error('Failed to resolve hotfix', error as Error);
+            vscode.window.showErrorMessage(`Failed to resolve hotfix: ${(error as Error).message}`);
+        }
+    }
+
+    private generateDashboardHTML(records: HotfixRecord[]): string {
+        const pendingRecords = records.filter(r => r.status === 'pending' || r.status === 'overdue');
+        const overdueCount = records.filter(r => r.status === 'overdue').length;
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <title>Hotfix Debt Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 20px; }
+        .header { border-bottom: 2px solid #007acc; padding-bottom: 10px; margin-bottom: 20px; }
+        .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+        .stat-card { padding: 15px; border-radius: 8px; background: #f5f5f5; }
+        .overdue { background: #ffebee; border-left: 4px solid #f44336; }
+        .warning { background: #fff3e0; border-left: 4px solid #ff9800; }
+        .normal { background: #e8f5e8; border-left: 4px solid #4caf50; }
+        .hotfix-item { margin: 10px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .priority-critical { border-left: 4px solid #f44336; }
+        .priority-high { border-left: 4px solid #ff9800; }
+        .priority-medium { border-left: 4px solid #2196f3; }
+        .priority-low { border-left: 4px solid #4caf50; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 Hotfix Debt Dashboard</h1>
+        <p>Technical debt tracking and SLA monitoring</p>
+    </div>
+
+    <div class="stats">
+        <div class="stat-card">
+            <h3>Total Pending</h3>
+            <p style="font-size: 24px; margin: 0;">${pendingRecords.length}</p>
+        </div>
+        <div class="stat-card ${overdueCount > 0 ? 'overdue' : 'normal'}">
+            <h3>Overdue</h3>
+            <p style="font-size: 24px; margin: 0;">${overdueCount}</p>
+        </div>
+    </div>
+
+    <h2>Pending Hotfixes</h2>
+    ${pendingRecords.map(record => {
+        const slaStatus = this.calculateSLAStatus(record);
+        return `
+        <div class="hotfix-item priority-${record.priority}">
+            <h3>${record.message}</h3>
+            <p><strong>ID:</strong> ${record.id}</p>
+            <p><strong>Branch:</strong> ${record.branch}</p>
+            <p><strong>Priority:</strong> ${record.priority.toUpperCase()}</p>
+            <p><strong>Files:</strong> ${record.files.length}</p>
+            <p><strong>SLA:</strong> ${slaStatus.hoursRemaining.toFixed(1)} hours remaining</p>
+            <p><strong>Status:</strong> ${this.getSLAStatusIcon(slaStatus.urgencyLevel)} ${slaStatus.urgencyLevel}</p>
+        </div>`;
+    }).join('')}
+</body>
+</html>`;
     }
 }

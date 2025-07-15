@@ -43,31 +43,54 @@ Access via `File → Preferences → Settings → Extensions → FlowCode`
 | `flowcode.debtFilePath` | Hotfix debt tracking file | `.flowcode/debt.json` |
 | `flowcode.gitHooksDir` | Git hooks directory | `.git/hooks` |
 
+## Available Commands
+
+Access these commands via the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+
+| Command | Description | Shortcut |
+|---------|-------------|----------|
+| `FlowCode: Elevate to Architect` | AI-powered code refactoring | `Ctrl+Alt+A` |
+| `FlowCode: Generate Code` | Generate code from description | - |
+| `FlowCode: Run Security Audit` | Comprehensive security scan | - |
+| `FlowCode: Show Code Graph` | Visualize code dependencies | - |
+| `FlowCode: Configure API Key` | Set up AI provider credentials | - |
+| `FlowCode: Create Hotfix` | Emergency fix with debt tracking | `Ctrl+Alt+H` |
+| `FlowCode: Run Health Check` | System health diagnostics | - |
+| `FlowCode: Show Status` | Extension status dashboard | - |
+
 ## Features
 
 ### 1. Companion Guard (Real-time)
+
 **Trigger**: File save or 500ms after typing stops
+
 - **TypeScript/JavaScript**: ESLint + TypeScript compiler
 - **Python**: Ruff linting
 - **Response time**: <500ms
 - **Visual**: Status bar indicators
 
 ### 2. Final Guard (Pre-push)
+
 **Trigger**: Git push
+
 - **Test suite**: Full npm test execution
 - **Security scan**: Semgrep SAST
 - **Language support**: TypeScript, JavaScript, Python
 - **Blocking**: Prevents push on failures
 
 ### 3. Architect Service (AI Refactoring)
+
 **Trigger**: Command palette or hotkey
+
 - **Providers**: OpenAI GPT-4-turbo, Claude-Opus
 - **Context**: Selected code + file structure
 - **Languages**: TypeScript, JavaScript, Python
 - **Output**: In-place code replacement
 
 ### 4. Hotfix System
+
 **Trigger**: Emergency situations
+
 - **Process**: Creates hotfix branch with minimal checks
 - **Debt tracking**: 48-hour SLA for proper resolution
 - **Monitoring**: Visual indicators for overdue hotfixes

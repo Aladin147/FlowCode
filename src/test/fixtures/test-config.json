@@ -1,0 +1,59 @@
+{
+  "testConfiguration": {
+    "timeout": 30000,
+    "retries": 2,
+    "parallel": false
+  },
+  "mockApiResponses": {
+    "openai": {
+      "success": {
+        "choices": [
+          {
+            "message": {
+              "content": "// Refactored code\nexport function improvedFunction(input: string): string {\n    return input.trim().toLowerCase();\n}"
+            }
+          }
+        ]
+      },
+      "error": {
+        "error": {
+          "message": "Rate limit exceeded",
+          "type": "rate_limit_error"
+        }
+      }
+    },
+    "anthropic": {
+      "success": {
+        "content": [
+          {
+            "text": "// Refactored code\nexport function improvedFunction(input: string): string {\n    return input.trim().toLowerCase();\n}"
+          }
+        ]
+      },
+      "error": {
+        "error": {
+          "message": "Invalid API key",
+          "type": "authentication_error"
+        }
+      }
+    }
+  },
+  "testFiles": {
+    "typescript": "src/test/fixtures/sample-code.ts",
+    "python": "src/test/fixtures/sample-code.py"
+  },
+  "expectedResults": {
+    "eslint": {
+      "errors": 2,
+      "warnings": 1
+    },
+    "typescript": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "ruff": {
+      "errors": 2,
+      "warnings": 0
+    }
+  }
+}

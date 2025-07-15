@@ -16,10 +16,30 @@ export function activate(context: vscode.ExtensionContext) {
             flowCodeExtension.elevateToArchitect()),
         vscode.commands.registerCommand('flowcode.hotfix', () => 
             flowCodeExtension.createHotfix()),
-        vscode.commands.registerCommand('flowcode.showGraph', () => 
+        vscode.commands.registerCommand('flowcode.showGraph', () =>
             flowCodeExtension.showCodeGraph()),
-        vscode.commands.registerCommand('flowcode.configureApiKey', () => 
-            flowCodeExtension.configureApiKey())
+        vscode.commands.registerCommand('flowcode.configureApiKey', () =>
+            flowCodeExtension.configureApiKey()),
+        vscode.commands.registerCommand('flowcode.clearApiCredentials', () =>
+            flowCodeExtension.clearApiCredentials()),
+        vscode.commands.registerCommand('flowcode.checkDependencies', () =>
+            flowCodeExtension.checkDependencyStatus()),
+        vscode.commands.registerCommand('flowcode.installTool', () =>
+            flowCodeExtension.installTool()),
+        vscode.commands.registerCommand('flowcode.runSecurityAudit', () =>
+            flowCodeExtension.runSecurityAudit()),
+        vscode.commands.registerCommand('flowcode.showStatus', () =>
+            flowCodeExtension.showStatusDashboard()),
+        vscode.commands.registerCommand('flowcode.showHelp', () =>
+            flowCodeExtension.showHelp()),
+        vscode.commands.registerCommand('flowcode.showContextualHelp', () =>
+            flowCodeExtension.showContextualHelp()),
+        vscode.commands.registerCommand('flowcode.showHealthStatus', () =>
+            flowCodeExtension.showHealthStatus()),
+        vscode.commands.registerCommand('flowcode.runHealthCheck', () =>
+            flowCodeExtension.runHealthCheck()),
+        vscode.commands.registerCommand('flowcode.generateCode', () =>
+            flowCodeExtension.generateCode())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

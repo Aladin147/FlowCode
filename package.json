@@ -1,52 +1,296 @@
 {
   "name": "flowcode",
-  "displayName": "FlowCode",
-  "description": "AI-powered coding assistant with built-in quality gates",
-  "version": "0.1.0-alpha",
+  "displayName": "FlowCode - AI-Powered Development Companion",
+  "description": "Intelligent VS Code extension with AI-powered code generation, security auditing, performance optimization, and comprehensive development tools",
+  "version": "0.1.0",
   "publisher": "flowcode-team",
+  "author": {
+    "name": "FlowCode Team",
+    "email": "team@flowcode.dev"
+  },
+  "license": "MIT",
+  "homepage": "https://flowcode.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/Aladin147/FlowCode.git"
   },
+  "bugs": {
+    "url": "https://github.com/Aladin147/FlowCode/issues"
+  },
   "engines": {
-    "vscode": "^1.102.0"
+    "vscode": "^1.74.0",
+    "node": ">=16.0.0"
   },
   "categories": [
-    "Other",
-    "Machine Learning"
+    "Machine Learning",
+    "Programming Languages",
+    "Linters",
+    "Testing",
+    "Other"
   ],
   "keywords": [
     "ai",
+    "artificial intelligence",
+    "code generation",
+    "security",
+    "performance",
+    "git hooks",
+    "code quality",
     "assistant",
-    "code-quality",
-    "linting",
-    "testing"
+    "openai",
+    "anthropic",
+    "typescript",
+    "javascript",
+    "python"
   ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "icon": "resources/icon.png",
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "FlowCode",
+      "properties": {
+        "flowcode.ai.provider": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "google", "azure"],
+          "default": "openai",
+          "description": "AI service provider"
+        },
+        "flowcode.ai.model": {
+          "type": "string",
+          "default": "gpt-4",
+          "description": "AI model to use"
+        },
+        "flowcode.ai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the AI service (stored securely)"
+        },
+        "flowcode.security.enableAuditing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable security auditing"
+        },
+        "flowcode.security.auditLevel": {
+          "type": "string",
+          "enum": ["basic", "standard", "comprehensive"],
+          "default": "standard",
+          "description": "Security audit level"
+        },
+        "flowcode.security.excludePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["node_modules/**", "*.test.js", "test/**"],
+          "description": "Patterns to exclude from security auditing"
+        },
+        "flowcode.performance.enableOptimization": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable performance optimization"
+        },
+        "flowcode.performance.memoryThreshold": {
+          "type": "number",
+          "default": 200,
+          "description": "Memory usage threshold (MB) for triggering optimization"
+        },
+        "flowcode.performance.startupTimeThreshold": {
+          "type": "number",
+          "default": 2000,
+          "description": "Startup time threshold (ms) for performance warnings"
+        },
+        "flowcode.performance.enableAutoOptimization": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic performance optimization"
+        },
+        "flowcode.userExperience.enableQuickActions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable quick actions menu"
+        },
+        "flowcode.userExperience.enableStatusBarIndicators": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable status bar indicators"
+        },
+        "flowcode.userExperience.enableSmartNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable smart notifications"
+        },
+        "flowcode.userExperience.enableContextualHelp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable contextual help and tooltips"
+        },
+        "flowcode.telemetry.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable telemetry collection (opt-in only)"
+        },
+        "flowcode.telemetry.collectUsageData": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collect anonymous usage data"
+        },
+        "flowcode.telemetry.collectPerformanceData": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collect performance metrics"
+        },
+        "flowcode.telemetry.collectErrorReports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collect error reports"
+        },
+        "flowcode.telemetry.privacyLevel": {
+          "type": "string",
+          "enum": ["minimal", "standard", "detailed"],
+          "default": "standard",
+          "description": "Privacy level for telemetry collection"
+        },
+        "flowcode.gitHooks.enablePreCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable pre-commit git hook"
+        },
+        "flowcode.gitHooks.enablePrePush": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable pre-push git hook"
+        },
+        "flowcode.logging.level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Logging level"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "flowcode.showQuickActions",
+        "key": "ctrl+alt+f",
+        "mac": "cmd+alt+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "flowcode.generateCode",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "flowcode.analyzeCode",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "flowcode.runSecurityAudit",
+        "key": "ctrl+alt+s",
+        "mac": "cmd+alt+s",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "flowcode.createHotfix",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "editorTextFocus"
+      }
+    ],
     "commands": [
       {
         "command": "flowcode.initialize",
         "title": "Initialize FlowCode",
-        "category": "FlowCode"
+        "category": "FlowCode",
+        "icon": "$(rocket)"
       },
       {
-        "command": "flowcode.elevateToArchitect",
-        "title": "Elevate to Architect",
-        "category": "FlowCode"
+        "command": "flowcode.generateCode",
+        "title": "Generate Code",
+        "category": "FlowCode",
+        "icon": "$(code)"
       },
       {
-        "command": "flowcode.hotfix",
+        "command": "flowcode.analyzeCode",
+        "title": "Analyze Code",
+        "category": "FlowCode",
+        "icon": "$(search)"
+      },
+      {
+        "command": "flowcode.runSecurityAudit",
+        "title": "Run Security Audit",
+        "category": "FlowCode",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "flowcode.createHotfix",
         "title": "Create Hotfix",
-        "category": "FlowCode"
+        "category": "FlowCode",
+        "icon": "$(git-branch)"
       },
       {
-        "command": "flowcode.showGraph",
-        "title": "Show Code Graph",
-        "category": "FlowCode"
+        "command": "flowcode.showDependencyGraph",
+        "title": "Show Dependency Graph",
+        "category": "FlowCode",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "flowcode.showPerformanceReport",
+        "title": "Show Performance Report",
+        "category": "FlowCode",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "flowcode.optimizeMemory",
+        "title": "Optimize Memory",
+        "category": "FlowCode",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "flowcode.configureApiKey",
+        "title": "Configure API Key",
+        "category": "FlowCode",
+        "icon": "$(key)"
+      },
+      {
+        "command": "flowcode.showQuickActions",
+        "title": "Show Quick Actions",
+        "category": "FlowCode",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "flowcode.showWelcomeGuide",
+        "title": "Show Welcome Guide",
+        "category": "FlowCode",
+        "icon": "$(book)"
+      },
+      {
+        "command": "flowcode.configureTelemetry",
+        "title": "Configure Telemetry",
+        "category": "FlowCode",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "flowcode.provideFeedback",
+        "title": "Provide Feedback",
+        "category": "FlowCode",
+        "icon": "$(feedback)"
+      },
+      {
+        "command": "flowcode.showMonitoringDashboard",
+        "title": "Show Monitoring Dashboard",
+        "category": "FlowCode",
+        "icon": "$(dashboard)"
       },
       {
         "command": "flowcode.configureApiKey",
@@ -95,26 +339,63 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./tsconfig.production.json",
+    "compile:dev": "tsc -p ./",
+    "build:production": "npm run compile && npm run package",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "echo \"Tests not implemented yet - extension ready for manual testing\"",
+    "lint:fix": "eslint src --ext ts --fix",
+    "test": "node ./out/test/runTest.js",
+    "test:watch": "npm run test -- --watch",
+    "test:coverage": "nyc npm run test",
+    "test:coverage:report": "nyc report --reporter=html",
+    "test:integration": "TEST_PATTERN='**/integration/*.test.js' npm run test",
+    "test:unit": "TEST_PATTERN='**/unit/*.test.js' npm run test",
+    "test:performance": "TEST_PATTERN='**/performance/*.test.js' npm run test",
+    "test:security": "TEST_PATTERN='**/security/*.test.js' npm run test",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:performance && npm run test:security",
+    "clean": "rimraf out coverage .nyc_output",
+    "clean:test": "rimraf coverage .nyc_output",
     "package": "vsce package",
-    "publish": "vsce publish"
+    "package:alpha": "vsce package --pre-release",
+    "package:beta": "vsce package --pre-release",
+    "publish": "vsce publish",
+    "publish:alpha": "vsce publish --pre-release",
+    "publish:beta": "vsce publish --pre-release",
+    "prepare-release": "npm run clean && npm run compile && npm run test:all && npm run package",
+    "prepare-alpha": "npm run clean && npm run compile && npm run test:unit && npm run package:alpha",
+    "prepare-beta": "npm run clean && npm run compile && npm run test:all && npm run package:beta",
+    "generate-docs": "typedoc --out docs/api src/",
+    "check-dependencies": "npm-check"
   },
   "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@istanbuljs/nyc-config-typescript": "^1.0.2",
+    "@types/chai": "^5.0.1",
+    "@types/d3": "^7.4.3",
+    "@types/eslint": "^9.6.1",
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.7",
+    "@types/sinon": "^17.0.4",
     "@types/vscode": "^1.102.0",
-    "@typescript-eslint/eslint-plugin": "^6.15.0",
-    "@typescript-eslint/parser": "^6.15.0",
-    "@vscode/test-electron": "^2.3.8",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.22.0",
+    "chai": "^5.2.1",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3"
+    "glob": "^11.0.3",
+    "mocha": "^11.7.1",
+    "nyc": "^17.1.0",
+    "rimraf": "^6.0.1",
+    "sinon": "^21.0.0",
+    "typescript": "^5.8.3"
   },
   "dependencies": {
     "axios": "^1.6.5",
+    "d3": "^7.9.0",
     "ignore": "^5.3.1",
     "semver": "^7.5.4",
     "tree-sitter": "^0.20.4",

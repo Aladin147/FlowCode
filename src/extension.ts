@@ -39,7 +39,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('flowcode.runHealthCheck', () =>
             flowCodeExtension.runHealthCheck()),
         vscode.commands.registerCommand('flowcode.generateCode', () =>
-            flowCodeExtension.generateCode())
+            flowCodeExtension.generateCode()),
+        vscode.commands.registerCommand('flowcode.showChat', () =>
+            flowCodeExtension.showChat())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

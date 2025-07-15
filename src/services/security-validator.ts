@@ -80,6 +80,7 @@ export interface SecretScanResult {
 
 export class SecurityValidatorService {
     private static readonly contextLogger = logger.createContextLogger('SecurityValidatorService');
+    private contextLogger = logger.createContextLogger('SecurityValidatorService');
     private configManager: ConfigurationManager;
     private toolManager: ToolManager;
 
@@ -1091,5 +1092,139 @@ export class SecurityValidatorService {
         }
 
         return report;
+    }
+
+    /**
+     * Validate AI-generated code suggestions for security issues
+     */
+    public async validateCodeSuggestion(codeContent: string): Promise<{warnings: string[], passed: boolean}> {
+        try {
+            this.contextLogger.info('Validating AI code suggestion for security issues');
+
+            const warnings: string[] = [];
+            let passed = true;
+
+            // Basic security pattern checks
+            const securityPatterns = [
+                {
+                    pattern: /eval\s*\(/gi,
+                    warning: 'Code contains eval() which can execute arbitrary code - security risk'
+                },
+                {
+                    pattern: /innerHTML\s*=/gi,
+                    warning: 'Direct innerHTML assignment detected - potential XSS vulnerability'
+                },
+                {
+                    pattern: /document\.write\s*\(/gi,
+                    warning: 'document.write() usage detected - potential XSS vulnerability'
+                },
+                {
+                    pattern: /exec\s*\(/gi,
+                    warning: 'exec() function detected - potential command injection risk'
+                },
+                {
+                    pattern: /shell_exec|system|passthru/gi,
+                    warning: 'Shell execution functions detected - potential command injection risk'
+                },
+                {
+                    pattern: /\$_GET|\$_POST|\$_REQUEST/gi,
+                    warning: 'Direct superglobal usage without sanitization - potential injection risk'
+                },
+                {
+                    pattern: /SELECT\s+.*\s+FROM\s+.*\s+WHERE\s+.*\+/gi,
+                    warning: 'Potential SQL injection pattern detected in query construction'
+                },
+                {
+                    pattern: /password\s*=\s*["'][^"']*["']/gi,
+                    warning: 'Hardcoded password detected - security credential exposure'
+                },
+                {
+                    pattern: /api[_-]?key\s*=\s*["'][^"']*["']/gi,
+                    warning: 'Hardcoded API key detected - security credential exposure'
+                },
+                {
+                    pattern: /secret\s*=\s*["'][^"']*["']/gi,
+                    warning: 'Hardcoded secret detected - security credential exposure'
+                }
+            ];
+
+            // Check for security patterns
+            for (const {pattern, warning} of securityPatterns) {
+                if (pattern.test(codeContent)) {
+                    warnings.push(warning);
+                    passed = false;
+                }
+            }
+
+            // Check for insecure dependencies (basic check)
+            const insecureDependencies = [
+                'lodash@4.17.20', // Example of vulnerable version
+                'moment@2.29.1',  // Example of deprecated package
+            ];
+
+            for (const dep of insecureDependencies) {
+                if (codeContent.includes(dep)) {
+                    warnings.push(`Potentially vulnerable dependency detected: ${dep}`);
+                    passed = false;
+                }
+            }
+
+            // Check for missing security headers in web code
+            if (codeContent.includes('express') || codeContent.includes('app.listen')) {
+                if (!codeContent.includes('helmet') && !codeContent.includes('X-Frame-Options')) {
+                    warnings.push('Express app detected without security headers - consider using helmet.js');
+                }
+            }
+
+            // Check for insecure random number generation
+            if (codeContent.includes('Math.random()') &&
+                (codeContent.includes('token') || codeContent.includes('session') || codeContent.includes('password'))) {
+                warnings.push('Math.random() used for security-sensitive values - use crypto.randomBytes() instead');
+                passed = false;
+            }
+
+            this.contextLogger.info('Code suggestion validation completed', {
+                warningsCount: warnings.length,
+                passed
+            });
+
+            return { warnings, passed };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to validate code suggestion', error as Error);
+            return {
+                warnings: ['Security validation failed - manual review recommended'],
+                passed: false
+            };
+        }
+    }
+
+    /**
+     * Validate sensitive operations for approval workflow
+     */
+    public async validateSensitiveOperation(operation: string, data: any): Promise<{requiresApproval: boolean, reason?: string}> {
+        try {
+            const sensitiveOperations = [
+                'file-delete',
+                'command-run',
+                'network-request',
+                'environment-modify',
+                'system-access'
+            ];
+
+            const requiresApproval = sensitiveOperations.includes(operation);
+            const reason = requiresApproval ?
+                `Operation '${operation}' requires user approval for security` :
+                undefined;
+
+            return { requiresApproval, reason };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to validate sensitive operation', error as Error);
+            return {
+                requiresApproval: true,
+                reason: 'Security validation failed - approval required'
+            };
+        }
     }
 }

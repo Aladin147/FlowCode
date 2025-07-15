@@ -17,6 +17,7 @@ import { SecurityValidatorService } from './services/security-validator';
 import { ArchitectCommands } from './commands/architect-commands';
 import { SecurityCommands } from './commands/security-commands';
 import { GitHookManager } from './services/git-hook-manager';
+import { ChatInterface } from './ui/chat-interface';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -36,6 +37,7 @@ export class FlowCodeExtension {
     private architectCommands: ArchitectCommands;
     private securityCommands: SecurityCommands;
     private gitHookManager: GitHookManager;
+    private chatInterface: ChatInterface;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
     private _isActive: boolean = false;
 
@@ -56,6 +58,12 @@ export class FlowCodeExtension {
         this.architectCommands = new ArchitectCommands(this.configManager);
         this.securityCommands = new SecurityCommands(this.configManager, this.securityValidatorService);
         this.gitHookManager = new GitHookManager(this.configManager);
+        this.chatInterface = new ChatInterface(
+            this.architectService,
+            this.companionGuard,
+            this.securityValidatorService,
+            this.configManager
+        );
     }
 
     public async activate(): Promise<void> {
@@ -932,6 +940,37 @@ export class FlowCodeExtension {
                     operation: 'Final Guard Initialization',
                     suggestion: 'Ensure you are in a git repository and have proper permissions',
                     documentation: 'https://flowcode.dev/docs/final-guard',
+                    reportable: true
+                },
+                { detail: message }
+            );
+        }
+    }
+
+    /**
+     * Show AI chat interface
+     */
+    @trackFeature('chat', 'show')
+    public async showChat(): Promise<void> {
+        if (!this._isActive) {
+            vscode.window.showWarningMessage('FlowCode is not active. Please activate it first.');
+            return;
+        }
+
+        try {
+            await this.chatInterface.show();
+            this.contextLogger.info('Chat interface opened successfully');
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.contextLogger.error('Failed to show chat interface', error as Error);
+
+            await this.notificationManager.showError(
+                'Failed to open chat interface',
+                {
+                    operation: 'Show Chat',
+                    suggestion: 'Try restarting VS Code or check the extension logs',
+                    documentation: 'https://flowcode.dev/docs/chat',
                     reportable: true
                 },
                 { detail: message }

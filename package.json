@@ -229,6 +229,12 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "flowcode.showChat",
+        "title": "Show AI Chat",
+        "category": "FlowCode",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "flowcode.generateCode",
         "title": "Generate Code",
         "category": "FlowCode",

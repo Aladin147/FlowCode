@@ -34,6 +34,21 @@ interface ValidationResult {
     sanitizedValue?: any;
 }
 
+export interface ChatContext {
+    userMessage: string;
+    activeFile?: string;
+    workspaceRoot?: string;
+    companionGuardStatus?: any;
+    recentFiles?: string[];
+}
+
+export interface ChatResponse {
+    content: string;
+    cost?: number;
+    tokens?: number;
+    metadata?: any;
+}
+
 export class ArchitectService {
     private contextLogger = logger.createContextLogger('ArchitectService');
     private responseCache: PerformanceCache<string>;
@@ -79,6 +94,168 @@ export class ArchitectService {
             this.contextLogger.error('Failed to initialize ArchitectService', error as Error);
             throw error;
         }
+    }
+
+    /**
+     * Generate AI response for chat interface
+     */
+    @timed('ArchitectService.generateResponse')
+    public async generateResponse(context: ChatContext): Promise<ChatResponse> {
+        try {
+            this.contextLogger.info('Generating AI response for chat', {
+                messageLength: context.userMessage.length,
+                hasActiveFile: !!context.activeFile,
+                hasWorkspace: !!context.workspaceRoot
+            });
+
+            // Prepare the prompt with context
+            const prompt = this.buildChatPrompt(context);
+
+            // Get API configuration
+            const apiConfig = await this.configManager.getApiConfiguration();
+
+            // Make API request
+            const response = await this.makeApiRequest(prompt, apiConfig);
+
+            // Parse response and extract metadata
+            const chatResponse: ChatResponse = {
+                content: response.content || response,
+                cost: response.cost || 0,
+                tokens: response.tokens || 0,
+                metadata: {
+                    model: apiConfig.model,
+                    provider: apiConfig.provider,
+                    timestamp: Date.now()
+                }
+            };
+
+            this.contextLogger.info('AI response generated successfully', {
+                responseLength: chatResponse.content.length,
+                cost: chatResponse.cost,
+                tokens: chatResponse.tokens
+            });
+
+            return chatResponse;
+
+        } catch (error) {
+            this.contextLogger.error('Failed to generate AI response', error as Error);
+            throw error;
+        }
+    }
+
+    /**
+     * Build chat prompt with context
+     */
+    private buildChatPrompt(context: ChatContext): string {
+        let prompt = `You are FlowCode AI Assistant, a security-focused coding assistant with real-time quality gates.
+
+User Message: ${context.userMessage}
+
+Context:`;
+
+        if (context.activeFile) {
+            prompt += `\nActive File: ${context.activeFile}`;
+        }
+
+        if (context.workspaceRoot) {
+            prompt += `\nWorkspace: ${context.workspaceRoot}`;
+        }
+
+        if (context.companionGuardStatus) {
+            prompt += `\nCode Quality Status: ${JSON.stringify(context.companionGuardStatus, null, 2)}`;
+        }
+
+        if (context.recentFiles && context.recentFiles.length > 0) {
+            prompt += `\nRecent Files: ${context.recentFiles.join(', ')}`;
+        }
+
+        prompt += `
+
+Instructions:
+- Provide helpful, accurate coding assistance
+- Consider security implications of any code suggestions
+- Reference the companion guard status when relevant
+- Be concise but thorough
+- If suggesting code changes, explain the reasoning
+- Always prioritize code quality and security
+
+Response:`;
+
+        return prompt;
+    }
+
+    /**
+     * Make API request to AI provider
+     */
+    private async makeApiRequest(prompt: string, apiConfig: any): Promise<any> {
+        try {
+            // This is a simplified implementation
+            // In a real implementation, you'd handle different providers (OpenAI, Anthropic, etc.)
+
+            const requestData = {
+                model: apiConfig.model || 'gpt-3.5-turbo',
+                messages: [
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                max_tokens: 2000,
+                temperature: 0.7
+            };
+
+            const response = await axios.post(
+                apiConfig.endpoint || 'https://api.openai.com/v1/chat/completions',
+                requestData,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${apiConfig.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 30000
+                }
+            );
+
+            if (response.data && response.data.choices && response.data.choices[0]) {
+                return {
+                    content: response.data.choices[0].message.content,
+                    tokens: response.data.usage?.total_tokens || 0,
+                    cost: this.calculateCost(response.data.usage?.total_tokens || 0, apiConfig.model)
+                };
+            }
+
+            throw new Error('Invalid API response format');
+
+        } catch (error) {
+            this.contextLogger.error('API request failed', error as Error);
+
+            // Return a fallback response for development
+            return {
+                content: `I'm FlowCode AI Assistant. I received your message: "${prompt.substring(0, 100)}..."
+
+I'm currently in development mode. Once properly configured with an AI provider, I'll be able to provide intelligent coding assistance with security validation and real-time quality feedback.
+
+Key features I'll provide:
+- Code analysis and suggestions
+- Security vulnerability detection
+- Real-time quality gate feedback
+- Architecture-aware refactoring
+- Technical debt tracking
+
+Please configure your AI provider API key to enable full functionality.`,
+                tokens: 0,
+                cost: 0
+            };
+        }
+    }
+
+    /**
+     * Calculate API cost based on tokens and model
+     */
+    private calculateCost(tokens: number, model: string): number {
+        // Simplified cost calculation - in reality this would be more sophisticated
+        const costPerToken = model.includes('gpt-4') ? 0.00003 : 0.000002;
+        return tokens * costPerToken;
     }
 
     /**

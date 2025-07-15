@@ -1073,6 +1073,66 @@ export class CompanionGuard {
         }
     }
 
+    /**
+     * Get current companion guard status
+     */
+    public async getStatus(): Promise<any> {
+        try {
+            const metrics = this.performanceMonitor.getMetrics();
+
+            return {
+                status: this.isRunning ? 'running' : 'ready',
+                isRunning: this.isRunning,
+                lastResult: this.lastResult,
+                metrics: {
+                    totalChecks: 0, // Simplified for now
+                    averageResponseTime: 0, // Simplified for now
+                    successRate: 100 // Simplified for now
+                },
+                issues: this.lastResult?.issues || [],
+                timestamp: Date.now()
+            };
+        } catch (error) {
+            this.contextLogger.error('Failed to get companion guard status', error as Error);
+            return {
+                status: 'error',
+                error: (error as Error).message,
+                timestamp: Date.now()
+            };
+        }
+    }
+
+    /**
+     * Register status change listener
+     */
+    public onStatusChange(callback: (status: any) => void): vscode.Disposable {
+        // Create a simple event emitter pattern
+        const listener = () => {
+            this.getStatus().then(callback).catch(error => {
+                this.contextLogger.error('Status change callback failed', error as Error);
+            });
+        };
+
+        // Listen for file changes to trigger status updates
+        const fileWatcher = vscode.workspace.onDidChangeTextDocument(listener);
+        const saveWatcher = vscode.workspace.onDidSaveTextDocument(listener);
+
+        return vscode.Disposable.from(fileWatcher, saveWatcher);
+    }
+
+    /**
+     * Calculate success rate from recent results
+     */
+    private calculateSuccessRate(results: any[]): number {
+        if (results.length === 0) return 100;
+
+        const successful = results.filter(result =>
+            !result.issues || result.issues.length === 0
+        ).length;
+
+        return (successful / results.length) * 100;
+    }
+
     public async dispose(): Promise<void> {
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);

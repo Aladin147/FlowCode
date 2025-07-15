@@ -7,6 +7,8 @@ import { logger } from './logger';
 export interface ApiConfiguration {
     provider: 'openai' | 'anthropic';
     apiKey: string;
+    model?: string;
+    endpoint?: string;
     maxTokens: number;
     keyCreatedAt?: number;
     keyExpiresAt?: number;
@@ -672,6 +674,34 @@ export class ConfigurationManager {
             this.contextLogger.warn('Failed to determine config file path', error as Error);
             // Return a reasonable default
             return path.join(process.env.HOME || '~', '.vscode', 'settings.json');
+        }
+    }
+
+    /**
+     * Get workspace state value
+     * @param key The state key
+     * @returns The stored value or undefined
+     */
+    public async getWorkspaceState(key: string): Promise<any> {
+        try {
+            return this.context?.workspaceState.get(key);
+        } catch (error) {
+            this.contextLogger.warn(`Failed to get workspace state for key: ${key}`, error as Error);
+            return undefined;
+        }
+    }
+
+    /**
+     * Set workspace state value
+     * @param key The state key
+     * @param value The value to store
+     */
+    public async setWorkspaceState(key: string, value: any): Promise<void> {
+        try {
+            await this.context?.workspaceState.update(key, value);
+        } catch (error) {
+            this.contextLogger.error(`Failed to set workspace state for key: ${key}`, error as Error);
+            throw error;
         }
     }
 }

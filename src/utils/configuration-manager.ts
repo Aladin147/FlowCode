@@ -627,4 +627,51 @@ export class ConfigurationManager {
 
         return { passed, score, checks };
     }
+
+    /**
+     * Get the configured API provider
+     * @returns The API provider name (e.g., 'openai', 'anthropic')
+     */
+    public async getApiProvider(): Promise<string> {
+        try {
+            const config = await this.getApiConfiguration();
+            return config.provider;
+        } catch (error) {
+            this.contextLogger.warn('Failed to get API provider, returning default', error as Error);
+            return 'openai'; // Default fallback
+        }
+    }
+
+    /**
+     * Get the path to the VS Code configuration file
+     * @returns Path to the settings.json file
+     */
+    public async getConfigFilePath(): Promise<string> {
+        try {
+            // Get the workspace configuration file path
+            const workspaceRoot = await this.getWorkspaceRoot();
+            const workspaceConfigPath = path.join(workspaceRoot, '.vscode', 'settings.json');
+
+            // Check if workspace config exists
+            if (fs.existsSync(workspaceConfigPath)) {
+                return workspaceConfigPath;
+            }
+
+            // Fall back to user settings
+            const userConfigDir = process.env.APPDATA ||
+                                 (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.config');
+
+            if (userConfigDir) {
+                return path.join(userConfigDir, 'Code', 'User', 'settings.json');
+            }
+
+            // Final fallback
+            return path.join(process.env.HOME || '~', '.vscode', 'settings.json');
+
+        } catch (error) {
+            this.contextLogger.warn('Failed to determine config file path', error as Error);
+            // Return a reasonable default
+            return path.join(process.env.HOME || '~', '.vscode', 'settings.json');
+        }
+    }
 }

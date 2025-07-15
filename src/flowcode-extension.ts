@@ -37,6 +37,7 @@ export class FlowCodeExtension {
     private securityCommands: SecurityCommands;
     private gitHookManager: GitHookManager;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
+    private _isActive: boolean = false;
 
     constructor(private context: vscode.ExtensionContext) {
         this.configManager = new ConfigurationManager(context);
@@ -63,18 +64,24 @@ export class FlowCodeExtension {
             await this.checkDependencies();
             await this.configManager.validateConfiguration();
             await this.initializeServices();
+            this._isActive = true;
             this.statusBarManager.showReady();
             vscode.window.showInformationMessage('FlowCode activated successfully!');
+            this.contextLogger.info('FlowCode extension activated successfully');
         } catch (error) {
+            this._isActive = false;
             const message = error instanceof Error ? error.message : 'Unknown error';
+            this.contextLogger.error('Failed to activate FlowCode extension', error as Error);
             this.statusBarManager.showError(message);
             vscode.window.showErrorMessage(`FlowCode activation failed: ${message}`);
         }
     }
 
     public async deactivate(): Promise<void> {
+        this._isActive = false;
         this.companionGuard.dispose();
         this.statusBarManager.dispose();
+        this.contextLogger.info('FlowCode extension deactivated');
     }
 
     public async initialize(): Promise<void> {
@@ -836,6 +843,140 @@ export class FlowCodeExtension {
                 'Health check failed',
                 {
                     operation: 'Health Check',
+                    reportable: true
+                },
+                { detail: message }
+            );
+        }
+    }
+
+    /**
+     * Check if the extension is currently active
+     * @returns true if extension is active, false otherwise
+     */
+    public isActive(): boolean {
+        return this._isActive;
+    }
+
+    /**
+     * Manually run the companion guard
+     * Executes linting and code quality checks on the current workspace
+     */
+    @trackFeature('companion-guard', 'manual-run')
+    @trackPerformance('runCompanionGuard')
+    public async runCompanionGuard(): Promise<void> {
+        try {
+            if (!this._isActive) {
+                throw new Error('Extension is not active. Please activate FlowCode first.');
+            }
+
+            this.statusBarManager.showRunning('Companion Guard');
+            this.contextLogger.info('Running companion guard manually');
+
+            // Run companion guard checks
+            await this.companionGuard.runChecks();
+
+            this.statusBarManager.showReady();
+            vscode.window.showInformationMessage('Companion Guard analysis completed successfully!');
+
+        } catch (error) {
+            this.statusBarManager.showError('Companion Guard failed');
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.contextLogger.error('Companion guard manual run failed', error as Error);
+
+            await this.notificationManager.showError(
+                'Companion Guard failed',
+                {
+                    operation: 'Manual Companion Guard Run',
+                    suggestion: 'Check your workspace for syntax errors or try running on a smaller selection',
+                    documentation: 'https://flowcode.dev/docs/companion-guard',
+                    reportable: true
+                },
+                { detail: message }
+            );
+        }
+    }
+
+    /**
+     * Initialize the final guard system
+     * Sets up pre-commit hooks and final validation
+     */
+    @trackFeature('final-guard', 'initialize')
+    @trackPerformance('initializeFinalGuard')
+    public async initializeFinalGuard(): Promise<void> {
+        try {
+            if (!this._isActive) {
+                throw new Error('Extension is not active. Please activate FlowCode first.');
+            }
+
+            this.statusBarManager.showRunning('Initializing Final Guard');
+            this.contextLogger.info('Initializing final guard system');
+
+            // Initialize final guard
+            await this.finalGuard.initialize();
+
+            // Set up git hooks if in a git repository
+            await this.initializeGitHooks();
+
+            this.statusBarManager.showReady();
+            vscode.window.showInformationMessage('Final Guard initialized successfully!');
+
+        } catch (error) {
+            this.statusBarManager.showError('Final Guard initialization failed');
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.contextLogger.error('Final guard initialization failed', error as Error);
+
+            await this.notificationManager.showError(
+                'Final Guard initialization failed',
+                {
+                    operation: 'Final Guard Initialization',
+                    suggestion: 'Ensure you are in a git repository and have proper permissions',
+                    documentation: 'https://flowcode.dev/docs/final-guard',
+                    reportable: true
+                },
+                { detail: message }
+            );
+        }
+    }
+
+    /**
+     * Refactor code using AI-powered analysis
+     * Analyzes selected code or current file and suggests improvements
+     */
+    @trackFeature('architect', 'refactor')
+    @trackPerformance('refactorCode')
+    public async refactorCode(): Promise<void> {
+        try {
+            if (!this._isActive) {
+                throw new Error('Extension is not active. Please activate FlowCode first.');
+            }
+
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage('No active editor found. Please open a file to refactor.');
+                return;
+            }
+
+            this.statusBarManager.showRunning('Code Refactoring');
+            this.contextLogger.info('Starting code refactoring');
+
+            // Use architect service for refactoring
+            await this.architectCommands.elevateToArchitect();
+
+            this.statusBarManager.showReady();
+            vscode.window.showInformationMessage('Code refactoring completed successfully!');
+
+        } catch (error) {
+            this.statusBarManager.showError('Refactoring failed');
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.contextLogger.error('Code refactoring failed', error as Error);
+
+            await this.notificationManager.showError(
+                'Code refactoring failed',
+                {
+                    operation: 'Code Refactoring',
+                    suggestion: 'Try selecting a smaller piece of code or check your API configuration',
+                    documentation: 'https://flowcode.dev/docs/refactoring',
                     reportable: true
                 },
                 { detail: message }

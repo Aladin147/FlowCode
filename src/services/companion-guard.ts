@@ -357,19 +357,26 @@ export class CompanionGuard {
                 throw new Error('No workspace folder found');
             }
 
-            this.eslintInstance = new ESLint({
-                cwd: workspaceRoot,
-                fix: false,
-                errorOnUnmatchedPattern: false,
-                ignore: true,
-                cache: true,
-                cacheLocation: path.join(workspaceRoot, '.eslintcache')
-            });
+            // Check if ESLint is available before trying to use it
+            try {
+                this.eslintInstance = new ESLint({
+                    cwd: workspaceRoot,
+                    fix: false,
+                    errorOnUnmatchedPattern: false,
+                    ignore: true,
+                    cache: true,
+                    cacheLocation: path.join(workspaceRoot, '.eslintcache')
+                });
 
-            this.contextLogger.debug('ESLint instance initialized');
+                this.contextLogger.debug('ESLint instance initialized');
+            } catch (eslintError) {
+                this.contextLogger.warn('ESLint not available, will skip ESLint checks', eslintError as Error);
+                // Don't throw here - we'll handle missing ESLint gracefully
+                this.eslintInstance = undefined;
+            }
         } catch (error) {
             this.contextLogger.error('Failed to initialize ESLint', error as Error);
-            throw error;
+            this.eslintInstance = undefined;
         }
     }
 
@@ -379,6 +386,19 @@ export class CompanionGuard {
         if (!workspaceRoot) {
             this.contextLogger.warn('No workspace folder found');
             return [];
+        }
+
+        // Initialize ESLint first and check if it's available
+        await this.initializeESLint();
+        if (!this.eslintInstance) {
+            this.contextLogger.debug('ESLint not available, skipping ESLint checks');
+            return [{
+                line: 1,
+                column: 1,
+                severity: 'info' as const,
+                message: 'ESLint not installed - install ESLint for enhanced code quality checks',
+                rule: 'flowcode-dependency'
+            }];
         }
 
         const eslintCheck = async (): Promise<GuardIssue[]> => {

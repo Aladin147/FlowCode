@@ -40,6 +40,10 @@ export interface ChatContext {
     workspaceRoot?: string;
     companionGuardStatus?: any;
     recentFiles?: string[];
+    dependencyAnalysis?: any;
+    architecturalInsights?: any;
+    debtAnalysis?: any;
+    proactiveDebtSuggestions?: any;
 }
 
 export interface ChatResponse {
@@ -47,6 +51,15 @@ export interface ChatResponse {
     cost?: number;
     tokens?: number;
     metadata?: any;
+}
+
+export interface RefactoringSuggestion {
+    type: string;
+    title: string;
+    description: string;
+    priority: 'low' | 'medium' | 'high';
+    reason: string;
+    impact: string;
 }
 
 export class ArchitectService {
@@ -147,7 +160,7 @@ export class ArchitectService {
      * Build chat prompt with context
      */
     private buildChatPrompt(context: ChatContext): string {
-        let prompt = `You are FlowCode AI Assistant, a security-focused coding assistant with real-time quality gates.
+        let prompt = `You are FlowCode AI Assistant, a security-focused coding assistant with real-time quality gates and dependency analysis.
 
 User Message: ${context.userMessage}
 
@@ -169,15 +182,76 @@ Context:`;
             prompt += `\nRecent Files: ${context.recentFiles.join(', ')}`;
         }
 
+        // Add dependency analysis if available
+        if (context.dependencyAnalysis) {
+            prompt += `\nDependency Analysis:`;
+            prompt += `\n- Dependencies: ${context.dependencyAnalysis.dependencies.length} items`;
+            prompt += `\n- Dependents: ${context.dependencyAnalysis.dependents.length} items`;
+
+            if (context.dependencyAnalysis.dependencies.length > 0) {
+                prompt += `\n- Key Dependencies: ${context.dependencyAnalysis.dependencies.slice(0, 3).map((d: any) => d.name).join(', ')}`;
+            }
+
+            if (context.dependencyAnalysis.dependents.length > 0) {
+                prompt += `\n- Key Dependents: ${context.dependencyAnalysis.dependents.slice(0, 3).map((d: any) => d.name).join(', ')}`;
+            }
+        }
+
+        // Add architectural insights if available
+        if (context.architecturalInsights) {
+            prompt += `\nArchitectural Insights:`;
+            prompt += `\n- Complexity: ${context.architecturalInsights.complexity.toFixed(2)}`;
+            prompt += `\n- Coupling: ${(context.architecturalInsights.coupling * 100).toFixed(1)}%`;
+            prompt += `\n- Cohesion: ${(context.architecturalInsights.cohesion * 100).toFixed(1)}%`;
+
+            if (context.architecturalInsights.suggestions.length > 0) {
+                prompt += `\n- Suggestions: ${context.architecturalInsights.suggestions.join('; ')}`;
+            }
+        }
+
+        // Add debt analysis if available
+        if (context.debtAnalysis) {
+            prompt += `\nTechnical Debt Analysis:`;
+            prompt += `\n- Has Debt: ${context.debtAnalysis.hasDebt ? 'Yes' : 'No'}`;
+            prompt += `\n- Risk Level: ${context.debtAnalysis.riskLevel}`;
+
+            if (context.debtAnalysis.hasDebt) {
+                prompt += `\n- Related Hotfixes: ${context.debtAnalysis.relatedHotfixes.length}`;
+                if (context.debtAnalysis.recommendations.length > 0) {
+                    prompt += `\n- Recommendations: ${context.debtAnalysis.recommendations.join('; ')}`;
+                }
+            }
+        }
+
+        // Add proactive debt suggestions if available
+        if (context.proactiveDebtSuggestions) {
+            prompt += `\nProactive Debt Reduction Opportunities:`;
+            prompt += `\n- Total Suggestions: ${context.proactiveDebtSuggestions.suggestions.length}`;
+            prompt += `\n- Hotspots: ${context.proactiveDebtSuggestions.hotspots.length}`;
+
+            if (context.proactiveDebtSuggestions.suggestions.length > 0) {
+                const highPriority = context.proactiveDebtSuggestions.suggestions.filter((s: any) => s.priority === 'high');
+                if (highPriority.length > 0) {
+                    prompt += `\n- High Priority Items: ${highPriority.map((s: any) => s.title).join(', ')}`;
+                }
+            }
+        }
+
         prompt += `
 
 Instructions:
-- Provide helpful, accurate coding assistance
+- Provide helpful, accurate coding assistance with dependency and debt awareness
 - Consider security implications of any code suggestions
 - Reference the companion guard status when relevant
+- Use dependency analysis to inform suggestions about code changes
+- Consider architectural impact when suggesting refactoring
+- Factor in technical debt when recommending changes
+- Proactively suggest debt reduction opportunities when relevant
+- Warn about high-risk modifications to files with existing debt
+- When user asks about refactoring, include proactive debt reduction suggestions
 - Be concise but thorough
-- If suggesting code changes, explain the reasoning
-- Always prioritize code quality and security
+- If suggesting code changes, explain the reasoning and potential impact
+- Always prioritize code quality, security, maintainability, and debt reduction
 
 Response:`;
 
@@ -256,6 +330,159 @@ Please configure your AI provider API key to enable full functionality.`,
         // Simplified cost calculation - in reality this would be more sophisticated
         const costPerToken = model.includes('gpt-4') ? 0.00003 : 0.000002;
         return tokens * costPerToken;
+    }
+
+    /**
+     * Generate architecture-aware refactoring suggestions
+     */
+    public async generateArchitectureAwareRefactoring(
+        code: string,
+        filePath: string,
+        symbolName?: string
+    ): Promise<{
+        suggestions: RefactoringSuggestion[];
+        architecturalImpact: any;
+        riskAssessment: any;
+    }> {
+        try {
+            this.contextLogger.info('Generating architecture-aware refactoring suggestions');
+
+            // Get architectural insights
+            const graphService = new (await import('../services/graph-service')).GraphService();
+            await graphService.initialize();
+
+            const insights = await graphService.getArchitecturalInsights(filePath, symbolName);
+            let impactAnalysis = null;
+
+            if (symbolName) {
+                impactAnalysis = await graphService.analyzeChangeImpact(symbolName, filePath);
+            }
+
+            // Generate refactoring suggestions based on architectural analysis
+            const suggestions: RefactoringSuggestion[] = [];
+
+            // High complexity suggestions
+            if (insights.complexity > 5) {
+                suggestions.push({
+                    type: 'extract-method',
+                    title: 'Extract Method',
+                    description: 'Break down complex function into smaller, focused methods',
+                    priority: 'high',
+                    reason: `High complexity score (${insights.complexity.toFixed(2)}) indicates this function is doing too much`,
+                    impact: impactAnalysis?.riskLevel || 'medium'
+                });
+            }
+
+            // High coupling suggestions
+            if (insights.coupling > 0.7) {
+                suggestions.push({
+                    type: 'reduce-coupling',
+                    title: 'Reduce Coupling',
+                    description: 'Introduce interfaces or dependency injection to reduce external dependencies',
+                    priority: 'medium',
+                    reason: `High coupling (${(insights.coupling * 100).toFixed(1)}%) makes code harder to test and maintain`,
+                    impact: impactAnalysis?.riskLevel || 'medium'
+                });
+            }
+
+            // Low cohesion suggestions
+            if (insights.cohesion < 0.3) {
+                suggestions.push({
+                    type: 'improve-cohesion',
+                    title: 'Improve Cohesion',
+                    description: 'Group related functionality together or split unrelated concerns',
+                    priority: 'medium',
+                    reason: `Low cohesion (${(insights.cohesion * 100).toFixed(1)}%) indicates mixed responsibilities`,
+                    impact: impactAnalysis?.riskLevel || 'low'
+                });
+            }
+
+            // Add general architectural suggestions
+            insights.suggestions.forEach(suggestion => {
+                suggestions.push({
+                    type: 'architectural',
+                    title: 'Architectural Improvement',
+                    description: suggestion,
+                    priority: 'low',
+                    reason: 'Based on static analysis of code structure',
+                    impact: 'low'
+                });
+            });
+
+            return {
+                suggestions,
+                architecturalImpact: insights,
+                riskAssessment: impactAnalysis
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to generate architecture-aware refactoring', error as Error);
+            return {
+                suggestions: [],
+                architecturalImpact: null,
+                riskAssessment: null
+            };
+        }
+    }
+
+    /**
+     * Elevate to Architect - comprehensive refactoring workflow
+     */
+    public async elevateToArchitect(filePath: string, selectedCode?: string): Promise<{
+        analysis: any;
+        suggestions: RefactoringSuggestion[];
+        actionPlan: string[];
+    }> {
+        try {
+            this.contextLogger.info('Starting Elevate to Architect workflow');
+
+            // Get comprehensive analysis
+            const graphService = new (await import('../services/graph-service')).GraphService();
+            await graphService.initialize();
+
+            const insights = await graphService.getArchitecturalInsights(filePath);
+
+            // Get refactoring suggestions
+            const refactoringResult = await this.generateArchitectureAwareRefactoring(
+                selectedCode || '',
+                filePath
+            );
+
+            // Create action plan
+            const actionPlan: string[] = [];
+
+            if (refactoringResult.suggestions.length > 0) {
+                actionPlan.push('🔍 **Analysis Complete** - Found architectural improvement opportunities');
+
+                const highPriority = refactoringResult.suggestions.filter(s => s.priority === 'high');
+                const mediumPriority = refactoringResult.suggestions.filter(s => s.priority === 'medium');
+
+                if (highPriority.length > 0) {
+                    actionPlan.push(`⚠️ **High Priority** - ${highPriority.length} critical improvements needed`);
+                    highPriority.forEach(s => actionPlan.push(`   • ${s.title}: ${s.description}`));
+                }
+
+                if (mediumPriority.length > 0) {
+                    actionPlan.push(`📋 **Medium Priority** - ${mediumPriority.length} recommended improvements`);
+                    mediumPriority.forEach(s => actionPlan.push(`   • ${s.title}: ${s.description}`));
+                }
+
+                actionPlan.push('🚀 **Next Steps** - Review suggestions and apply incrementally');
+            } else {
+                actionPlan.push('✅ **Analysis Complete** - No major architectural issues detected');
+                actionPlan.push('🎯 **Recommendation** - Code structure appears well-organized');
+            }
+
+            return {
+                analysis: insights,
+                suggestions: refactoringResult.suggestions,
+                actionPlan
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to elevate to architect', error as Error);
+            throw error;
+        }
     }
 
     /**

@@ -62,6 +62,8 @@ export class FlowCodeExtension {
             this.architectService,
             this.companionGuard,
             this.securityValidatorService,
+            this.graphService,
+            this.hotfixService,
             this.configManager
         );
     }

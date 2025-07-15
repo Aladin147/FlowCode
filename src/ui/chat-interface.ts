@@ -3,6 +3,8 @@ import { logger } from '../utils/logger';
 import { ArchitectService } from '../services/architect-service';
 import { CompanionGuard } from '../services/companion-guard';
 import { SecurityValidatorService } from '../services/security-validator';
+import { GraphService } from '../services/graph-service';
+import { HotfixService } from '../services/hotfix-service';
 import { ConfigurationManager } from '../utils/configuration-manager';
 
 export interface ChatMessage {
@@ -72,6 +74,8 @@ export class ChatInterface {
         private architectService: ArchitectService,
         private companionGuard: CompanionGuard,
         private securityValidator: SecurityValidatorService,
+        private graphService: GraphService,
+        private hotfixService: HotfixService,
         private configManager: ConfigurationManager
     ) {
         this.loadMessageHistory();
@@ -163,6 +167,34 @@ export class ChatInterface {
             case 'applyDiff':
                 await this.handleApplyDiff(message.diffId);
                 break;
+
+            case 'showDependencies':
+                await this.handleShowDependencies(message.symbolName, message.filePath);
+                break;
+
+            case 'analyzeImpact':
+                await this.handleAnalyzeImpact(message.symbolName, message.filePath);
+                break;
+
+            case 'showArchitecture':
+                await this.handleShowArchitecture(message.filePath);
+                break;
+
+            case 'elevateToArchitect':
+                await this.handleElevateToArchitect(message.filePath, message.selectedCode);
+                break;
+
+            case 'showDebtSummary':
+                await this.handleShowDebtSummary();
+                break;
+
+            case 'analyzeFileDebt':
+                await this.handleAnalyzeFileDebt(message.filePath);
+                break;
+
+            case 'getProactiveDebtSuggestions':
+                await this.handleProactiveDebtSuggestions();
+                break;
         }
     }
 
@@ -222,17 +254,52 @@ export class ChatInterface {
     }
 
     /**
-     * Get AI response with security validation
+     * Get AI response with security validation and dependency analysis
      */
     private async getAIResponse(userMessage: string, context: ChatContext): Promise<{content: string, metadata: any}> {
         try {
-            // Prepare context for AI
+            // Get dependency analysis and debt information if we have an active file
+            let dependencyAnalysis = null;
+            let architecturalInsights = null;
+            let debtAnalysis = null;
+            let proactiveDebtSuggestions = null;
+
+            if (context.activeFile) {
+                try {
+                    // Get architectural insights for the current file
+                    architecturalInsights = await this.graphService.getArchitecturalInsights(context.activeFile);
+
+                    // Get debt analysis for the current file
+                    debtAnalysis = await this.hotfixService.analyzeFileDebtImpact(context.activeFile);
+
+                    // Get proactive debt suggestions if user is asking about refactoring or improvements
+                    const isRefactoringQuery = /\b(refactor|improve|optimize|clean|debt|technical debt|hotfix)\b/i.test(userMessage);
+                    if (isRefactoringQuery) {
+                        proactiveDebtSuggestions = await this.hotfixService.getProactiveDebtSuggestions();
+                    }
+
+                    // If the user is asking about a specific symbol, get dependency info
+                    const symbolMatch = userMessage.match(/\b(function|class|method|variable)\s+(\w+)/i);
+                    if (symbolMatch && context.activeFile && symbolMatch[2]) {
+                        const symbolName = symbolMatch[2];
+                        dependencyAnalysis = await this.graphService.getDependencies(symbolName, context.activeFile);
+                    }
+                } catch (error) {
+                    this.contextLogger.warn('Failed to get analysis data', error as Error);
+                }
+            }
+
+            // Prepare enhanced context for AI
             const aiContext = {
                 userMessage,
                 activeFile: context.activeFile,
                 workspaceRoot: context.workspaceRoot,
                 companionGuardStatus: context.companionGuardStatus,
-                recentFiles: context.recentFiles
+                recentFiles: context.recentFiles,
+                dependencyAnalysis,
+                architecturalInsights,
+                debtAnalysis,
+                proactiveDebtSuggestions
             };
 
             // Get response from architect service
@@ -241,12 +308,16 @@ export class ChatInterface {
             // Validate security of any code suggestions
             const securityValidation = await this.securityValidator.validateCodeSuggestion(response.content);
 
-            // Prepare metadata
+            // Prepare enhanced metadata
             const metadata = {
                 cost: response.cost || 0,
                 tokens: response.tokens || 0,
                 securityWarnings: securityValidation.warnings || [],
-                qualityIssues: context.companionGuardStatus?.issues || []
+                qualityIssues: context.companionGuardStatus?.issues || [],
+                dependencyAnalysis,
+                architecturalInsights,
+                debtAnalysis,
+                proactiveDebtSuggestions
             };
 
             return {
@@ -525,6 +596,456 @@ export class ChatInterface {
     }
 
     /**
+     * Handle show dependencies request
+     */
+    private async handleShowDependencies(symbolName?: string, filePath?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to analyze dependencies for.');
+                return;
+            }
+
+            if (!symbolName) {
+                // Ask user to select a symbol
+                const symbols = await this.getSymbolsFromFile(activeFile);
+                if (symbols.length === 0) {
+                    await this.addSystemMessage('No symbols found in the current file.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    symbols.map(s => ({ label: s.name, description: s.type, detail: s.signature })),
+                    { placeHolder: 'Select a symbol to analyze dependencies' }
+                );
+
+                if (!selected) return;
+                symbolName = selected.label;
+            }
+
+            // Get dependency analysis
+            const analysis = await this.graphService.getDependencies(symbolName, activeFile);
+
+            // Create dependency report
+            let report = `🔗 **Dependency Analysis for \`${symbolName}\`**\n\n`;
+
+            if (analysis.dependencies.length > 0) {
+                report += `**Dependencies (${analysis.dependencies.length}):**\n`;
+                analysis.dependencies.forEach(dep => {
+                    report += `- \`${dep.name}\` (${dep.type}) in ${vscode.workspace.asRelativePath(dep.file)}\n`;
+                });
+                report += '\n';
+            }
+
+            if (analysis.dependents.length > 0) {
+                report += `**Dependents (${analysis.dependents.length}):**\n`;
+                analysis.dependents.forEach(dep => {
+                    report += `- \`${dep.name}\` (${dep.type}) in ${vscode.workspace.asRelativePath(dep.file)}\n`;
+                });
+                report += '\n';
+            }
+
+            if (analysis.dependencies.length === 0 && analysis.dependents.length === 0) {
+                report += 'No dependencies or dependents found.';
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show dependencies', error as Error);
+            await this.addSystemMessage(`Failed to analyze dependencies: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle analyze impact request
+     */
+    private async handleAnalyzeImpact(symbolName?: string, filePath?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to analyze impact for.');
+                return;
+            }
+
+            if (!symbolName) {
+                const symbols = await this.getSymbolsFromFile(activeFile);
+                if (symbols.length === 0) {
+                    await this.addSystemMessage('No symbols found in the current file.');
+                    return;
+                }
+
+                const selected = await vscode.window.showQuickPick(
+                    symbols.map(s => ({ label: s.name, description: s.type, detail: s.signature })),
+                    { placeHolder: 'Select a symbol to analyze change impact' }
+                );
+
+                if (!selected) return;
+                symbolName = selected.label;
+            }
+
+            // Get impact analysis
+            const impact = await this.graphService.analyzeChangeImpact(symbolName, activeFile);
+
+            // Create impact report
+            let report = `⚠️ **Change Impact Analysis for \`${symbolName}\`**\n\n`;
+            report += `**Risk Level:** ${impact.riskLevel.toUpperCase()}\n\n`;
+
+            if (impact.directImpact.length > 0) {
+                report += `**Direct Impact (${impact.directImpact.length} items):**\n`;
+                impact.directImpact.forEach(item => {
+                    report += `- \`${item.name}\` (${item.type}) in ${vscode.workspace.asRelativePath(item.file)}\n`;
+                });
+                report += '\n';
+            }
+
+            if (impact.indirectImpact.length > 0) {
+                report += `**Indirect Impact (${impact.indirectImpact.length} items):**\n`;
+                impact.indirectImpact.forEach(item => {
+                    report += `- \`${item.name}\` (${item.type}) in ${vscode.workspace.asRelativePath(item.file)}\n`;
+                });
+                report += '\n';
+            }
+
+            if (impact.affectedFiles.length > 0) {
+                report += `**Affected Files (${impact.affectedFiles.length}):**\n`;
+                impact.affectedFiles.forEach(file => {
+                    report += `- ${vscode.workspace.asRelativePath(file)}\n`;
+                });
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to analyze impact', error as Error);
+            await this.addSystemMessage(`Failed to analyze impact: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle show architecture request
+     */
+    private async handleShowArchitecture(filePath?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to analyze architecture for.');
+                return;
+            }
+
+            // Get architectural insights
+            const insights = await this.graphService.getArchitecturalInsights(activeFile);
+
+            // Create architecture report
+            let report = `🏗️ **Architectural Analysis for \`${vscode.workspace.asRelativePath(activeFile)}\`**\n\n`;
+            report += `**Complexity Score:** ${insights.complexity.toFixed(2)}\n`;
+            report += `**Coupling Score:** ${(insights.coupling * 100).toFixed(1)}%\n`;
+            report += `**Cohesion Score:** ${(insights.cohesion * 100).toFixed(1)}%\n\n`;
+
+            if (insights.suggestions.length > 0) {
+                report += `**Suggestions:**\n`;
+                insights.suggestions.forEach(suggestion => {
+                    report += `- ${suggestion}\n`;
+                });
+            } else {
+                report += '✅ No architectural issues detected.';
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show architecture', error as Error);
+            await this.addSystemMessage(`Failed to analyze architecture: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle Elevate to Architect request
+     */
+    private async handleElevateToArchitect(filePath?: string, selectedCode?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to analyze for architectural elevation.');
+                return;
+            }
+
+            // Get selected code if not provided
+            if (!selectedCode) {
+                const editor = vscode.window.activeTextEditor;
+                if (editor && !editor.selection.isEmpty) {
+                    selectedCode = editor.document.getText(editor.selection);
+                }
+            }
+
+            // Show progress message
+            await this.addSystemMessage('🚀 **Elevating to Architect** - Analyzing code architecture...');
+
+            // Get comprehensive analysis
+            const result = await this.architectService.elevateToArchitect(activeFile, selectedCode);
+
+            // Create comprehensive report
+            let report = `🏗️ **Architect Analysis Complete**\n\n`;
+
+            // Add architectural metrics
+            if (result.analysis) {
+                report += `**Architectural Metrics:**\n`;
+                report += `- Complexity: ${result.analysis.complexity.toFixed(2)}\n`;
+                report += `- Coupling: ${(result.analysis.coupling * 100).toFixed(1)}%\n`;
+                report += `- Cohesion: ${(result.analysis.cohesion * 100).toFixed(1)}%\n\n`;
+            }
+
+            // Add suggestions
+            if (result.suggestions.length > 0) {
+                report += `**Refactoring Suggestions (${result.suggestions.length}):**\n\n`;
+
+                const highPriority = result.suggestions.filter(s => s.priority === 'high');
+                const mediumPriority = result.suggestions.filter(s => s.priority === 'medium');
+                const lowPriority = result.suggestions.filter(s => s.priority === 'low');
+
+                if (highPriority.length > 0) {
+                    report += `**🔴 High Priority:**\n`;
+                    highPriority.forEach(s => {
+                        report += `- **${s.title}**: ${s.description}\n`;
+                        report += `  *Reason*: ${s.reason}\n`;
+                        report += `  *Impact*: ${s.impact}\n\n`;
+                    });
+                }
+
+                if (mediumPriority.length > 0) {
+                    report += `**🟡 Medium Priority:**\n`;
+                    mediumPriority.forEach(s => {
+                        report += `- **${s.title}**: ${s.description}\n`;
+                        report += `  *Reason*: ${s.reason}\n\n`;
+                    });
+                }
+
+                if (lowPriority.length > 0) {
+                    report += `**🟢 Low Priority:**\n`;
+                    lowPriority.forEach(s => {
+                        report += `- **${s.title}**: ${s.description}\n`;
+                    });
+                }
+            }
+
+            // Add action plan
+            if (result.actionPlan.length > 0) {
+                report += `\n**Action Plan:**\n`;
+                result.actionPlan.forEach(step => {
+                    report += `${step}\n`;
+                });
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to elevate to architect', error as Error);
+            await this.addSystemMessage(`Failed to elevate to architect: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle show debt summary request
+     */
+    private async handleShowDebtSummary(): Promise<void> {
+        try {
+            const debtSummary = await this.hotfixService.getDebtSummary();
+
+            let report = `💳 **Technical Debt Summary**\n\n`;
+            report += `**Overall Risk Level:** ${debtSummary.riskLevel.toUpperCase()}\n\n`;
+            report += `**Debt Metrics:**\n`;
+            report += `- Total Pending Hotfixes: ${debtSummary.totalDebt}\n`;
+            report += `- Critical Priority: ${debtSummary.criticalDebt}\n`;
+            report += `- Overdue Items: ${debtSummary.overdueDebt}\n`;
+            report += `- Average Age: ${debtSummary.averageAge.toFixed(1)} hours\n\n`;
+
+            if (debtSummary.slaWarnings.length > 0) {
+                report += `**⚠️ SLA Warnings:**\n`;
+                debtSummary.slaWarnings.forEach(warning => {
+                    report += `- ${warning}\n`;
+                });
+                report += '\n';
+            }
+
+            // Add recommendations based on risk level
+            if (debtSummary.riskLevel === 'critical') {
+                report += `**🚨 Immediate Actions Required:**\n`;
+                report += `- Address overdue hotfixes immediately\n`;
+                report += `- Escalate critical items to team leads\n`;
+                report += `- Consider code freeze until debt is reduced\n`;
+            } else if (debtSummary.riskLevel === 'high') {
+                report += `**⚠️ Recommended Actions:**\n`;
+                report += `- Prioritize critical hotfixes in next sprint\n`;
+                report += `- Review and resolve oldest items first\n`;
+                report += `- Monitor SLA compliance closely\n`;
+            } else if (debtSummary.totalDebt > 0) {
+                report += `**📋 Maintenance Recommendations:**\n`;
+                report += `- Schedule regular debt reduction sessions\n`;
+                report += `- Address items before they become critical\n`;
+            } else {
+                report += `✅ **Excellent!** No pending technical debt detected.`;
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to show debt summary', error as Error);
+            await this.addSystemMessage(`Failed to get debt summary: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle analyze file debt request
+     */
+    private async handleAnalyzeFileDebt(filePath?: string): Promise<void> {
+        try {
+            const activeFile = filePath || vscode.window.activeTextEditor?.document.fileName;
+            if (!activeFile) {
+                await this.addSystemMessage('No active file to analyze debt for.');
+                return;
+            }
+
+            const debtAnalysis = await this.hotfixService.analyzeFileDebtImpact(activeFile);
+
+            let report = `💳 **File Debt Analysis: \`${vscode.workspace.asRelativePath(activeFile)}\`**\n\n`;
+
+            if (debtAnalysis.hasDebt) {
+                report += `**Risk Level:** ${debtAnalysis.riskLevel.toUpperCase()}\n\n`;
+                report += `**Related Hotfixes (${debtAnalysis.relatedHotfixes.length}):**\n`;
+
+                debtAnalysis.relatedHotfixes.forEach(hotfix => {
+                    const urgencyIcon = hotfix.status === 'overdue' ? '🔴' :
+                                       hotfix.priority === 'critical' ? '🟠' :
+                                       hotfix.priority === 'high' ? '🟡' : '🟢';
+                    report += `- ${urgencyIcon} **${hotfix.id}**: ${hotfix.message}\n`;
+                    report += `  *Priority*: ${hotfix.priority}, *Status*: ${hotfix.status}\n`;
+                });
+                report += '\n';
+
+                if (debtAnalysis.recommendations.length > 0) {
+                    report += `**Recommendations:**\n`;
+                    debtAnalysis.recommendations.forEach(rec => {
+                        report += `- ${rec}\n`;
+                    });
+                }
+            } else {
+                report += `✅ **No technical debt detected** for this file.\n\n`;
+                report += `This file is clear of pending hotfixes and can be modified safely.`;
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to analyze file debt', error as Error);
+            await this.addSystemMessage(`Failed to analyze file debt: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Handle proactive debt suggestions request
+     */
+    private async handleProactiveDebtSuggestions(): Promise<void> {
+        try {
+            await this.addSystemMessage('🔍 **Analyzing technical debt patterns...** This may take a moment.');
+
+            const proactiveAnalysis = await this.hotfixService.getProactiveDebtSuggestions();
+
+            let report = `🎯 **Proactive Debt Reduction Analysis**\n\n`;
+
+            // Show hotspots
+            if (proactiveAnalysis.hotspots.length > 0) {
+                report += `**🔥 Debt Hotspots (${proactiveAnalysis.hotspots.length}):**\n`;
+                proactiveAnalysis.hotspots.forEach(hotspot => {
+                    report += `- ${hotspot}\n`;
+                });
+                report += '\n';
+            }
+
+            // Show trends
+            if (proactiveAnalysis.trends.length > 0) {
+                report += `**📈 Debt Trends:**\n`;
+                proactiveAnalysis.trends.forEach(trend => {
+                    const trendIcon = trend.trend === 'increasing' ? '📈' :
+                                     trend.trend === 'decreasing' ? '📉' : '➡️';
+                    report += `- ${trend.period}: ${trend.newDebt} new, ${trend.resolvedDebt} resolved ${trendIcon}\n`;
+                });
+                report += '\n';
+            }
+
+            // Show suggestions
+            if (proactiveAnalysis.suggestions.length > 0) {
+                report += `**💡 Proactive Suggestions (${proactiveAnalysis.suggestions.length}):**\n\n`;
+
+                const highPriority = proactiveAnalysis.suggestions.filter(s => s.priority === 'high');
+                const mediumPriority = proactiveAnalysis.suggestions.filter(s => s.priority === 'medium');
+                const lowPriority = proactiveAnalysis.suggestions.filter(s => s.priority === 'low');
+
+                if (highPriority.length > 0) {
+                    report += `**🔴 High Priority:**\n`;
+                    highPriority.forEach(s => {
+                        report += `- **${s.title}**\n`;
+                        report += `  *Description*: ${s.description}\n`;
+                        report += `  *Impact*: ${s.impact}\n`;
+                        report += `  *Effort*: ${s.effort}\n`;
+                        report += `  *Files*: ${s.files.length} affected\n\n`;
+                    });
+                }
+
+                if (mediumPriority.length > 0) {
+                    report += `**🟡 Medium Priority:**\n`;
+                    mediumPriority.forEach(s => {
+                        report += `- **${s.title}**\n`;
+                        report += `  *Description*: ${s.description}\n`;
+                        report += `  *Impact*: ${s.impact}\n\n`;
+                    });
+                }
+
+                if (lowPriority.length > 0) {
+                    report += `**🟢 Low Priority:**\n`;
+                    lowPriority.forEach(s => {
+                        report += `- **${s.title}**: ${s.description}\n`;
+                    });
+                    report += '\n';
+                }
+            }
+
+            // Show action plan
+            if (proactiveAnalysis.actionPlan.length > 0) {
+                report += `**📋 Recommended Action Plan:**\n`;
+                proactiveAnalysis.actionPlan.forEach(step => {
+                    report += `${step}\n`;
+                });
+            }
+
+            await this.addSystemMessage(report);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get proactive debt suggestions', error as Error);
+            await this.addSystemMessage(`Failed to analyze proactive debt suggestions: ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Get symbols from a file
+     */
+    private async getSymbolsFromFile(filePath: string): Promise<Array<{name: string, type: string, signature?: string}>> {
+        try {
+            const graph = await this.graphService.generateGraph(filePath);
+            if (!graph) return [];
+
+            return graph.nodes.map(node => ({
+                name: node.name,
+                type: node.type,
+                signature: node.signature
+            }));
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get symbols from file', error as Error);
+            return [];
+        }
+    }
+
+    /**
      * Generate unique message ID
      */
     private generateMessageId(): string {
@@ -674,6 +1195,13 @@ export class ChatInterface {
                 <button onclick="addFileContext()">@file</button>
                 <button onclick="addFolderContext()">@folder</button>
                 <button onclick="addProblemsContext()">@problems</button>
+                <button onclick="showDependencies()">🔗 Dependencies</button>
+                <button onclick="analyzeImpact()">⚠️ Impact</button>
+                <button onclick="showArchitecture()">🏗️ Architecture</button>
+                <button onclick="showDebtSummary()">💳 Debt Summary</button>
+                <button onclick="analyzeFileDebt()">🔍 File Debt</button>
+                <button onclick="getProactiveDebtSuggestions()">🎯 Debt Insights</button>
+                <button onclick="elevateToArchitect()" class="architect-button">🚀 Elevate to Architect</button>
             </div>
             <div class="input-wrapper">
                 <textarea id="messageInput" placeholder="Ask FlowCode anything about your code..." rows="3"></textarea>
@@ -805,6 +1333,18 @@ export class ChatInterface {
                 border-radius: 4px;
                 font-size: 11px;
                 cursor: pointer;
+            }
+
+            .architect-button {
+                background: var(--vscode-button-background) !important;
+                color: var(--vscode-button-foreground) !important;
+                font-weight: 600 !important;
+                padding: 6px 12px !important;
+                font-size: 12px !important;
+            }
+
+            .architect-button:hover {
+                background: var(--vscode-button-hoverBackground) !important;
             }
             
             .input-wrapper {
@@ -960,6 +1500,48 @@ export class ChatInterface {
                     command: 'addContext',
                     type: 'problems',
                     value: ''
+                });
+            }
+
+            function showDependencies() {
+                vscode.postMessage({
+                    command: 'showDependencies'
+                });
+            }
+
+            function analyzeImpact() {
+                vscode.postMessage({
+                    command: 'analyzeImpact'
+                });
+            }
+
+            function showArchitecture() {
+                vscode.postMessage({
+                    command: 'showArchitecture'
+                });
+            }
+
+            function elevateToArchitect() {
+                vscode.postMessage({
+                    command: 'elevateToArchitect'
+                });
+            }
+
+            function showDebtSummary() {
+                vscode.postMessage({
+                    command: 'showDebtSummary'
+                });
+            }
+
+            function analyzeFileDebt() {
+                vscode.postMessage({
+                    command: 'analyzeFileDebt'
+                });
+            }
+
+            function getProactiveDebtSuggestions() {
+                vscode.postMessage({
+                    command: 'getProactiveDebtSuggestions'
                 });
             }
             

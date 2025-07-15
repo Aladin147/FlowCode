@@ -1103,4 +1103,170 @@ export class GraphService {
     private escapeRegex(string: string): string {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
+
+    /**
+     * Get dependencies for a specific symbol (function, class, etc.)
+     */
+    public async getDependencies(symbolName: string, filePath: string): Promise<{
+        dependencies: CodeNode[];
+        dependents: CodeNode[];
+        edges: CodeEdge[];
+    }> {
+        try {
+            const graph = await this.generateGraph(filePath);
+            if (!graph) {
+                return { dependencies: [], dependents: [], edges: [] };
+            }
+
+            const targetNode = graph.nodes.find(node => node.name === symbolName);
+            if (!targetNode) {
+                return { dependencies: [], dependents: [], edges: [] };
+            }
+
+            // Find what this symbol depends on
+            const dependencies = graph.edges
+                .filter(edge => edge.from === targetNode.id)
+                .map(edge => graph.nodes.find(node => node.id === edge.to))
+                .filter(node => node !== undefined) as CodeNode[];
+
+            // Find what depends on this symbol
+            const dependents = graph.edges
+                .filter(edge => edge.to === targetNode.id)
+                .map(edge => graph.nodes.find(node => node.id === edge.from))
+                .filter(node => node !== undefined) as CodeNode[];
+
+            // Get relevant edges
+            const relevantEdges = graph.edges.filter(edge =>
+                edge.from === targetNode.id || edge.to === targetNode.id
+            );
+
+            return { dependencies, dependents, edges: relevantEdges };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get dependencies', error as Error);
+            return { dependencies: [], dependents: [], edges: [] };
+        }
+    }
+
+    /**
+     * Analyze impact of changing a specific symbol
+     */
+    public async analyzeChangeImpact(symbolName: string, filePath: string): Promise<{
+        directImpact: CodeNode[];
+        indirectImpact: CodeNode[];
+        riskLevel: 'low' | 'medium' | 'high';
+        affectedFiles: string[];
+    }> {
+        try {
+            const { dependents } = await this.getDependencies(symbolName, filePath);
+
+            // Calculate direct impact (immediate dependents)
+            const directImpact = dependents;
+
+            // Calculate indirect impact (dependents of dependents)
+            const indirectImpact: CodeNode[] = [];
+            for (const dependent of dependents) {
+                const { dependents: secondLevel } = await this.getDependencies(dependent.name, dependent.file);
+                indirectImpact.push(...secondLevel);
+            }
+
+            // Remove duplicates
+            const uniqueIndirect = indirectImpact.filter((node, index, self) =>
+                index === self.findIndex(n => n.id === node.id)
+            );
+
+            // Calculate risk level
+            const totalImpact = directImpact.length + uniqueIndirect.length;
+            const riskLevel = totalImpact > 10 ? 'high' : totalImpact > 3 ? 'medium' : 'low';
+
+            // Get affected files
+            const affectedFiles = Array.from(new Set([
+                ...directImpact.map(node => node.file),
+                ...uniqueIndirect.map(node => node.file)
+            ]));
+
+            return {
+                directImpact,
+                indirectImpact: uniqueIndirect,
+                riskLevel,
+                affectedFiles
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to analyze change impact', error as Error);
+            return {
+                directImpact: [],
+                indirectImpact: [],
+                riskLevel: 'low',
+                affectedFiles: []
+            };
+        }
+    }
+
+    /**
+     * Get architectural insights for a file or symbol
+     */
+    public async getArchitecturalInsights(filePath: string, symbolName?: string): Promise<{
+        complexity: number;
+        coupling: number;
+        cohesion: number;
+        suggestions: string[];
+    }> {
+        try {
+            const graph = await this.generateGraph(filePath);
+            if (!graph) {
+                return { complexity: 0, coupling: 0, cohesion: 0, suggestions: [] };
+            }
+
+            let targetNodes = graph.nodes;
+            if (symbolName) {
+                const targetNode = graph.nodes.find(node => node.name === symbolName);
+                targetNodes = targetNode ? [targetNode] : [];
+            }
+
+            // Calculate complexity (number of connections)
+            const complexity = targetNodes.reduce((sum, node) => {
+                const connections = graph.edges.filter(edge =>
+                    edge.from === node.id || edge.to === node.id
+                ).length;
+                return sum + connections;
+            }, 0) / targetNodes.length || 0;
+
+            // Calculate coupling (external dependencies)
+            const externalDeps = graph.edges.filter(edge => {
+                const fromNode = graph.nodes.find(n => n.id === edge.from);
+                const toNode = graph.nodes.find(n => n.id === edge.to);
+                return fromNode && toNode && fromNode.file !== toNode.file;
+            }).length;
+
+            const coupling = externalDeps / graph.edges.length || 0;
+
+            // Calculate cohesion (internal connections)
+            const internalConnections = graph.edges.filter(edge => {
+                const fromNode = graph.nodes.find(n => n.id === edge.from);
+                const toNode = graph.nodes.find(n => n.id === edge.to);
+                return fromNode && toNode && fromNode.file === toNode.file;
+            }).length;
+
+            const cohesion = internalConnections / graph.edges.length || 0;
+
+            // Generate suggestions
+            const suggestions: string[] = [];
+            if (complexity > 5) {
+                suggestions.push('Consider breaking down complex functions into smaller, more focused ones');
+            }
+            if (coupling > 0.7) {
+                suggestions.push('High coupling detected - consider reducing external dependencies');
+            }
+            if (cohesion < 0.3) {
+                suggestions.push('Low cohesion detected - consider grouping related functionality');
+            }
+
+            return { complexity, coupling, cohesion, suggestions };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get architectural insights', error as Error);
+            return { complexity: 0, coupling: 0, cohesion: 0, suggestions: [] };
+        }
+    }
 }

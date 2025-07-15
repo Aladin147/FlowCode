@@ -37,6 +37,23 @@ export interface SLAStatus {
     urgencyLevel: 'normal' | 'warning' | 'critical' | 'overdue';
 }
 
+export interface DebtReductionSuggestion {
+    type: string;
+    priority: 'low' | 'medium' | 'high';
+    title: string;
+    description: string;
+    impact: string;
+    effort: 'low' | 'medium' | 'high';
+    files: string[];
+}
+
+export interface DebtTrend {
+    period: string;
+    newDebt: number;
+    resolvedDebt: number;
+    trend: 'increasing' | 'decreasing' | 'stable';
+}
+
 export class HotfixService {
     private contextLogger = logger.createContextLogger('HotfixService');
     private readonly SLA_HOURS = 48; // 48 hour SLA
@@ -721,5 +738,256 @@ export class HotfixService {
     }).join('')}
 </body>
 </html>`;
+    }
+
+    /**
+     * Get debt summary for chat integration
+     */
+    public async getDebtSummary(): Promise<{
+        totalDebt: number;
+        criticalDebt: number;
+        overdueDebt: number;
+        averageAge: number;
+        slaWarnings: string[];
+        riskLevel: 'low' | 'medium' | 'high' | 'critical';
+    }> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const now = new Date();
+
+            const totalDebt = records.length;
+            const criticalDebt = records.filter(r => r.priority === 'critical').length;
+            const overdueDebt = records.filter(r => r.status === 'overdue').length;
+
+            // Calculate average age in hours
+            const totalAge = records.reduce((sum, record) => {
+                const created = new Date(record.timestamp);
+                const ageHours = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
+                return sum + ageHours;
+            }, 0);
+            const averageAge = totalDebt > 0 ? totalAge / totalDebt : 0;
+
+            // Generate SLA warnings
+            const slaWarnings: string[] = [];
+            records.forEach(record => {
+                const slaStatus = this.calculateSLAStatus(record);
+                if (slaStatus.urgencyLevel === 'critical' || slaStatus.urgencyLevel === 'overdue') {
+                    slaWarnings.push(`${record.id}: ${slaStatus.urgencyLevel} (${slaStatus.hoursRemaining.toFixed(1)}h remaining)`);
+                }
+            });
+
+            // Determine overall risk level
+            let riskLevel: 'low' | 'medium' | 'high' | 'critical' = 'low';
+            if (overdueDebt > 0 || criticalDebt > 2) {
+                riskLevel = 'critical';
+            } else if (criticalDebt > 0 || totalDebt > 5) {
+                riskLevel = 'high';
+            } else if (totalDebt > 2) {
+                riskLevel = 'medium';
+            }
+
+            return {
+                totalDebt,
+                criticalDebt,
+                overdueDebt,
+                averageAge,
+                slaWarnings,
+                riskLevel
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get debt summary', error as Error);
+            return {
+                totalDebt: 0,
+                criticalDebt: 0,
+                overdueDebt: 0,
+                averageAge: 0,
+                slaWarnings: [],
+                riskLevel: 'low'
+            };
+        }
+    }
+
+    /**
+     * Analyze debt impact for a specific file
+     */
+    public async analyzeFileDebtImpact(filePath: string): Promise<{
+        hasDebt: boolean;
+        relatedHotfixes: HotfixRecord[];
+        riskLevel: 'low' | 'medium' | 'high';
+        recommendations: string[];
+    }> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const relatedHotfixes = records.filter(record =>
+                record.files.some(file => file.includes(path.basename(filePath)))
+            );
+
+            const hasDebt = relatedHotfixes.length > 0;
+            const criticalCount = relatedHotfixes.filter(r => r.priority === 'critical').length;
+            const overdueCount = relatedHotfixes.filter(r => r.status === 'overdue').length;
+
+            let riskLevel: 'low' | 'medium' | 'high' = 'low';
+            if (overdueCount > 0 || criticalCount > 1) {
+                riskLevel = 'high';
+            } else if (criticalCount > 0 || relatedHotfixes.length > 2) {
+                riskLevel = 'medium';
+            }
+
+            const recommendations: string[] = [];
+            if (hasDebt) {
+                recommendations.push('Consider addressing existing hotfixes before making major changes');
+                if (riskLevel === 'high') {
+                    recommendations.push('High risk: Coordinate with team before modifying this file');
+                }
+                if (overdueCount > 0) {
+                    recommendations.push('Urgent: Resolve overdue hotfixes immediately');
+                }
+            }
+
+            return {
+                hasDebt,
+                relatedHotfixes,
+                riskLevel,
+                recommendations
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to analyze file debt impact', error as Error);
+            return {
+                hasDebt: false,
+                relatedHotfixes: [],
+                riskLevel: 'low',
+                recommendations: []
+            };
+        }
+    }
+
+    /**
+     * Get proactive debt reduction suggestions
+     */
+    public async getProactiveDebtSuggestions(): Promise<{
+        suggestions: DebtReductionSuggestion[];
+        hotspots: string[];
+        trends: DebtTrend[];
+        actionPlan: string[];
+    }> {
+        try {
+            const records = await this.getPendingHotfixes();
+            const suggestions: DebtReductionSuggestion[] = [];
+            const hotspots: string[] = [];
+            const trends: DebtTrend[] = [];
+            const actionPlan: string[] = [];
+
+            // Analyze file hotspots
+            const fileFrequency = new Map<string, number>();
+            records.forEach(record => {
+                record.files.forEach(file => {
+                    fileFrequency.set(file, (fileFrequency.get(file) || 0) + 1);
+                });
+            });
+
+            // Identify hotspots (files with multiple hotfixes)
+            for (const [file, count] of fileFrequency.entries()) {
+                if (count > 1) {
+                    hotspots.push(`${file} (${count} hotfixes)`);
+
+                    suggestions.push({
+                        type: 'refactor-hotspot',
+                        priority: count > 3 ? 'high' : 'medium',
+                        title: `Refactor High-Debt File: ${path.basename(file)}`,
+                        description: `This file has ${count} pending hotfixes, indicating structural issues`,
+                        impact: 'Reduces future hotfix frequency and improves maintainability',
+                        effort: count > 3 ? 'high' : 'medium',
+                        files: [file]
+                    });
+                }
+            }
+
+            // Analyze age trends
+            const now = new Date();
+            const oldHotfixes = records.filter(record => {
+                const age = (now.getTime() - new Date(record.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+                return age > 7; // Older than 7 days
+            });
+
+            if (oldHotfixes.length > 0) {
+                suggestions.push({
+                    type: 'address-old-debt',
+                    priority: 'medium',
+                    title: 'Address Aging Technical Debt',
+                    description: `${oldHotfixes.length} hotfixes are older than 7 days`,
+                    impact: 'Prevents debt from becoming more expensive to fix',
+                    effort: 'medium',
+                    files: oldHotfixes.flatMap(h => h.files)
+                });
+            }
+
+            // Analyze priority distribution
+            const criticalCount = records.filter(r => r.priority === 'critical').length;
+            const highCount = records.filter(r => r.priority === 'high').length;
+
+            if (criticalCount > 0) {
+                suggestions.push({
+                    type: 'critical-debt-sprint',
+                    priority: 'high',
+                    title: 'Critical Debt Sprint',
+                    description: `${criticalCount} critical hotfixes need immediate attention`,
+                    impact: 'Prevents system instability and customer impact',
+                    effort: 'high',
+                    files: records.filter(r => r.priority === 'critical').flatMap(h => h.files)
+                });
+            }
+
+            // Generate trends
+            trends.push({
+                period: 'last_7_days',
+                newDebt: records.filter(r => {
+                    const age = (now.getTime() - new Date(r.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+                    return age <= 7;
+                }).length,
+                resolvedDebt: 0, // Would need historical data
+                trend: 'increasing' // Simplified
+            });
+
+            // Create action plan
+            if (suggestions.length > 0) {
+                actionPlan.push('🎯 **Proactive Debt Reduction Plan**');
+
+                const highPriority = suggestions.filter(s => s.priority === 'high');
+                const mediumPriority = suggestions.filter(s => s.priority === 'medium');
+
+                if (highPriority.length > 0) {
+                    actionPlan.push(`**Phase 1 (Immediate):** ${highPriority.length} high-priority items`);
+                    highPriority.forEach(s => actionPlan.push(`  • ${s.title}`));
+                }
+
+                if (mediumPriority.length > 0) {
+                    actionPlan.push(`**Phase 2 (Next Sprint):** ${mediumPriority.length} medium-priority items`);
+                    mediumPriority.forEach(s => actionPlan.push(`  • ${s.title}`));
+                }
+
+                actionPlan.push('**Phase 3:** Monitor and prevent new debt accumulation');
+            } else {
+                actionPlan.push('✅ **No immediate debt reduction needed**');
+                actionPlan.push('🎯 **Focus on prevention:** Maintain current quality standards');
+            }
+
+            return {
+                suggestions,
+                hotspots,
+                trends,
+                actionPlan
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to get proactive debt suggestions', error as Error);
+            return {
+                suggestions: [],
+                hotspots: [],
+                trends: [],
+                actionPlan: ['Failed to analyze debt - manual review recommended']
+            };
+        }
     }
 }

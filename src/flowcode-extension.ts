@@ -306,8 +306,8 @@ export class FlowCodeExtension {
 
             const provider = await vscode.window.showQuickPick([
                 'OpenAI',
-                'OpenAI-Compatible (DeepSeek, etc.)',
-                'Anthropic'
+                'Anthropic',
+                'DeepSeek'
             ], {
                 placeHolder: 'Select your AI provider',
                 ignoreFocusOut: true
@@ -317,26 +317,38 @@ export class FlowCodeExtension {
                 return;
             }
 
-            const isOpenAICompatible = provider.includes('OpenAI');
-            const providerLower = isOpenAICompatible ? 'openai' : 'anthropic';
-            const keyFormat = isOpenAICompatible
-                ? 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-                : 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
-
-            // Ask for custom endpoint if OpenAI-compatible
+            let providerLower: string;
+            let keyFormat: string;
             let customEndpoint = '';
-            if (provider === 'OpenAI-Compatible (DeepSeek, etc.)') {
-                customEndpoint = await vscode.window.showInputBox({
-                    prompt: 'Enter the API endpoint URL (e.g., https://api.deepseek.com/v1)',
-                    placeHolder: 'https://api.deepseek.com/v1',
-                    ignoreFocusOut: true,
-                    validateInput: (value) => {
-                        if (value && !value.startsWith('http')) {
-                            return 'Endpoint must be a valid HTTP/HTTPS URL';
+
+            switch (provider) {
+                case 'OpenAI':
+                    providerLower = 'openai';
+                    keyFormat = 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+                    break;
+                case 'Anthropic':
+                    providerLower = 'anthropic';
+                    keyFormat = 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+                    break;
+                case 'DeepSeek':
+                    providerLower = 'deepseek';
+                    keyFormat = 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+                    // Ask for custom endpoint for DeepSeek
+                    customEndpoint = await vscode.window.showInputBox({
+                        prompt: 'Enter the DeepSeek API endpoint URL',
+                        placeHolder: 'https://api.deepseek.com/v1',
+                        value: 'https://api.deepseek.com/v1',
+                        ignoreFocusOut: true,
+                        validateInput: (value) => {
+                            if (!value || !value.startsWith('http')) {
+                                return 'Endpoint must be a valid HTTP/HTTPS URL';
+                            }
+                            return undefined;
                         }
-                        return undefined;
-                    }
-                }) || '';
+                    }) || 'https://api.deepseek.com/v1';
+                    break;
+                default:
+                    throw new Error('Invalid provider selected');
             }
 
             const apiKey = await vscode.window.showInputBox({
@@ -351,14 +363,14 @@ export class FlowCodeExtension {
 
                     const trimmedValue = value.trim();
 
-                    // Basic format validation - more flexible for OpenAI-compatible
-                    if (providerLower === 'openai' && !trimmedValue.startsWith('sk-')) {
-                        return 'OpenAI/OpenAI-compatible API keys must start with "sk-"';
+                    // Basic format validation for each provider
+                    if ((providerLower === 'openai' || providerLower === 'deepseek') && !trimmedValue.startsWith('sk-')) {
+                        return `${provider} API keys must start with "sk-"`;
                     }
                     if (providerLower === 'anthropic' && !trimmedValue.startsWith('sk-ant-')) {
                         return 'Anthropic API keys must start with "sk-ant-"';
                     }
-                    if (providerLower === 'openai' && trimmedValue.length < 20) {
+                    if ((providerLower === 'openai' || providerLower === 'deepseek') && trimmedValue.length < 20) {
                         return 'API key appears to be too short';
                     }
 
@@ -380,7 +392,7 @@ export class FlowCodeExtension {
 
                 try {
                     // Store the API key (this will validate format)
-                    await this.configManager.setApiConfiguration(providerLower, apiKey);
+                    await this.configManager.setApiConfiguration(providerLower as 'openai' | 'anthropic' | 'deepseek', apiKey);
 
                     // Store custom endpoint if provided
                     if (customEndpoint) {
@@ -391,7 +403,7 @@ export class FlowCodeExtension {
                     progress.report({ message: "Testing API key..." });
 
                     // Test the API key with custom endpoint if provided
-                    const isValid = await this.configManager.testApiKey(providerLower, apiKey, customEndpoint);
+                    const isValid = await this.configManager.testApiKey(providerLower as 'openai' | 'anthropic' | 'deepseek', apiKey, customEndpoint);
                     if (!isValid && providerLower === 'openai') {
                         const proceed = await vscode.window.showWarningMessage(
                             'API key validation failed. The key may be invalid or there may be network issues. Save anyway?',

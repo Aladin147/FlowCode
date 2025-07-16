@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { logger } from './logger';
 
 export interface ApiConfiguration {
-    provider: 'openai' | 'anthropic';
+    provider: 'openai' | 'anthropic' | 'deepseek';
     apiKey: string;
     model?: string;
     endpoint?: string;
@@ -39,7 +39,7 @@ export class ConfigurationManager {
     public async getApiConfiguration(): Promise<ApiConfiguration> {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
 
-        const provider = config.get<'openai' | 'anthropic'>('ai.provider', 'openai');
+        const provider = config.get<'openai' | 'anthropic' | 'deepseek'>('ai.provider', 'openai');
         const maxTokens = config.get<number>('ai.maxTokens', 2000);
         const customEndpoint = config.get<string>('customEndpoint', '');
 
@@ -118,7 +118,7 @@ export class ConfigurationManager {
         }
     }
 
-    public async setApiConfiguration(provider: 'openai' | 'anthropic', apiKey: string): Promise<void> {
+    public async setApiConfiguration(provider: 'openai' | 'anthropic' | 'deepseek', apiKey: string): Promise<void> {
         // Validate API key format before storing
         if (!this.validateApiKeyFormat(apiKey, provider)) {
             throw new Error(`Invalid API key format for ${provider}. Please check your API key format.`);
@@ -225,7 +225,7 @@ export class ConfigurationManager {
     /**
      * Validate API key format based on provider
      */
-    private validateApiKeyFormat(apiKey: string, provider: 'openai' | 'anthropic'): boolean {
+    private validateApiKeyFormat(apiKey: string, provider: 'openai' | 'anthropic' | 'deepseek'): boolean {
         if (!apiKey || typeof apiKey !== 'string') {
             return false;
         }
@@ -234,8 +234,11 @@ export class ConfigurationManager {
 
         switch (provider) {
             case 'openai':
-                // OpenAI and OpenAI-compatible APIs (like DeepSeek) - more flexible validation
-                // Accept keys that start with 'sk-' and have reasonable length (20+ chars)
+                // OpenAI API keys start with 'sk-' and have reasonable length (20+ chars)
+                return /^sk-[A-Za-z0-9\-_]{20,}$/.test(trimmedKey);
+
+            case 'deepseek':
+                // DeepSeek API keys also start with 'sk-' similar to OpenAI
                 return /^sk-[A-Za-z0-9\-_]{20,}$/.test(trimmedKey);
 
             case 'anthropic':
@@ -326,7 +329,7 @@ export class ConfigurationManager {
     /**
      * Migrate existing plain text API key to secure encrypted storage
      */
-    private async migrateToSecureStorage(apiKey: string, provider: 'openai' | 'anthropic'): Promise<void> {
+    private async migrateToSecureStorage(apiKey: string, provider: 'openai' | 'anthropic' | 'deepseek'): Promise<void> {
         this.contextLogger.info('Migrating API key to secure encrypted storage');
         await this.setApiConfiguration(provider, apiKey);
     }
@@ -524,7 +527,7 @@ export class ConfigurationManager {
     /**
      * Test API key validity by making a test request
      */
-    public async testApiKey(provider: 'openai' | 'anthropic', apiKey: string, customEndpoint?: string): Promise<boolean> {
+    public async testApiKey(provider: 'openai' | 'anthropic' | 'deepseek', apiKey: string, customEndpoint?: string): Promise<boolean> {
         try {
             const axios = await import('axios');
 
@@ -554,7 +557,7 @@ export class ConfigurationManager {
                             messages: [{ role: 'user', content: 'test' }]
                         }, {
                             headers: {
-                                'Authorization': `Bearer ${apiKey}`,
+                                'x-api-key': apiKey,
                                 'Content-Type': 'application/json',
                                 'anthropic-version': '2023-06-01'
                             },
@@ -569,6 +572,21 @@ export class ConfigurationManager {
                         }
                         return false;
                     }
+
+                case 'deepseek':
+                    // Test DeepSeek API with a simple request
+                    const deepseekUrl = customEndpoint || 'https://api.deepseek.com/v1/models';
+
+                    this.contextLogger.info(`Testing DeepSeek API key with endpoint: ${deepseekUrl}`);
+
+                    const deepseekResponse = await axios.default.get(deepseekUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 10000
+                    });
+                    return deepseekResponse.status === 200;
 
                 default:
                     return false;

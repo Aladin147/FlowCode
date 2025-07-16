@@ -259,46 +259,40 @@ Response:`;
     }
 
     /**
-     * Make API request to AI provider
+     * Make API request to AI provider - FIXED to handle all providers properly
      */
     private async makeApiRequest(prompt: string, apiConfig: any): Promise<any> {
         try {
-            // This is a simplified implementation
-            // In a real implementation, you'd handle different providers (OpenAI, Anthropic, etc.)
+            // Use the proper provider-specific method
+            this.contextLogger.info('Making API request', {
+                provider: apiConfig.provider,
+                hasApiKey: !!apiConfig.apiKey,
+                apiKeyPrefix: apiConfig.apiKey ? apiConfig.apiKey.substring(0, 10) + '...' : 'none',
+                endpoint: apiConfig.endpoint
+            });
 
-            const requestData = {
-                model: apiConfig.model || 'gpt-3.5-turbo',
-                messages: [
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ],
-                max_tokens: 2000,
-                temperature: 0.7
-            };
-
-            const response = await axios.post(
-                apiConfig.endpoint || 'https://api.openai.com/v1/chat/completions',
-                requestData,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${apiConfig.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 30000
-                }
-            );
-
-            if (response.data && response.data.choices && response.data.choices[0]) {
-                return {
-                    content: response.data.choices[0].message.content,
-                    tokens: response.data.usage?.total_tokens || 0,
-                    cost: this.calculateCost(response.data.usage?.total_tokens || 0, apiConfig.model)
-                };
+            // Delegate to provider-specific methods
+            let responseContent: string;
+            switch (apiConfig.provider) {
+                case 'openai':
+                    responseContent = await this.callOpenAI(prompt, apiConfig.apiKey, apiConfig.maxTokens || 2000, apiConfig.endpoint);
+                    break;
+                case 'anthropic':
+                    responseContent = await this.callAnthropic(prompt, apiConfig.apiKey, apiConfig.maxTokens || 2000);
+                    break;
+                case 'deepseek':
+                    responseContent = await this.callDeepSeek(prompt, apiConfig.apiKey, apiConfig.maxTokens || 2000, apiConfig.endpoint);
+                    break;
+                default:
+                    throw new Error(`Unsupported provider: ${apiConfig.provider}`);
             }
 
-            throw new Error('Invalid API response format');
+            // Return in consistent format
+            return {
+                content: responseContent,
+                tokens: 0, // TODO: Extract from actual response
+                cost: 0   // TODO: Calculate based on provider and tokens
+            };
 
         } catch (error) {
             this.contextLogger.error('API request failed', error as Error);
@@ -598,9 +592,11 @@ Response:`;
 
                 switch (config.provider) {
                     case 'openai':
-                        return await this.callOpenAI(prompt, config.apiKey, config.maxTokens);
+                        return await this.callOpenAI(prompt, config.apiKey, config.maxTokens, config.endpoint);
                     case 'anthropic':
                         return await this.callAnthropic(prompt, config.apiKey, config.maxTokens);
+                    case 'deepseek':
+                        return await this.callDeepSeek(prompt, config.apiKey, config.maxTokens, config.endpoint);
                     default:
                         throw new Error(`Unsupported provider: ${config.provider}`);
                 }
@@ -703,9 +699,17 @@ Return only the refactored code in a single code block.`;
 
     }
 
-    private async callOpenAI(prompt: string, apiKey: string, maxTokens: number): Promise<string> {
+    private async callOpenAI(prompt: string, apiKey: string, maxTokens: number, customEndpoint?: string): Promise<string> {
+        const endpoint = customEndpoint || 'https://api.openai.com/v1/chat/completions';
+
+        this.contextLogger.info('Calling OpenAI API', {
+            endpoint,
+            model: 'gpt-4-turbo-preview',
+            maxTokens
+        });
+
         const response = await axios.post(
-            'https://api.openai.com/v1/chat/completions',
+            endpoint,
             {
                 model: 'gpt-4-turbo-preview',
                 messages: [
@@ -729,6 +733,12 @@ Return only the refactored code in a single code block.`;
     }
 
     private async callAnthropic(prompt: string, apiKey: string, maxTokens: number): Promise<string> {
+        this.contextLogger.info('Calling Anthropic API', {
+            endpoint: 'https://api.anthropic.com/v1/messages',
+            model: 'claude-3-opus-20240229',
+            maxTokens
+        });
+
         const response = await axios.post(
             'https://api.anthropic.com/v1/messages',
             {
@@ -751,6 +761,39 @@ Return only the refactored code in a single code block.`;
         );
 
         return response.data.content[0]?.text || '';
+    }
+
+    private async callDeepSeek(prompt: string, apiKey: string, maxTokens: number, endpoint?: string): Promise<string> {
+        const deepseekEndpoint = endpoint || 'https://api.deepseek.com/v1/chat/completions';
+
+        this.contextLogger.info('Calling DeepSeek API', {
+            endpoint: deepseekEndpoint,
+            model: 'deepseek-chat',
+            maxTokens
+        });
+
+        const response = await axios.post(
+            deepseekEndpoint,
+            {
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                max_tokens: maxTokens,
+                temperature: 0.1
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        return response.data.choices[0]?.message?.content || '';
     }
 
     private extractCodeBlock(response: string): string | null {

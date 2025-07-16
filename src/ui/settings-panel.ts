@@ -363,6 +363,7 @@ export class SettingsPanel {
                         <select id="provider">
                             <option value="openai">OpenAI</option>
                             <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="deepseek">DeepSeek</option>
                         </select>
                     </div>
                     

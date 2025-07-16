@@ -36,6 +36,12 @@ export class FinalGuard {
         try {
             this.contextLogger.info('Initializing Final Guard with comprehensive pre-push validation');
 
+            // Check if workspace is available
+            if (!this.configManager.isWorkspaceAvailable()) {
+                this.contextLogger.info('No workspace folder found - Final Guard will be available when a workspace is opened');
+                return;
+            }
+
             // Verify git repository
             await this.verifyGitRepository();
 

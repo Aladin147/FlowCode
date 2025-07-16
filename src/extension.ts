@@ -3,18 +3,35 @@ import { FlowCodeExtension } from './flowcode-extension';
 
 let flowCodeExtension: FlowCodeExtension;
 
-export function activate(context: vscode.ExtensionContext) {
-    console.log('FlowCode extension is now active!');
-    
-    flowCodeExtension = new FlowCodeExtension(context);
+export async function activate(context: vscode.ExtensionContext) {
+    console.log('🚀 FlowCode extension activation started!');
+
+    try {
+        flowCodeExtension = new FlowCodeExtension(context);
+        console.log('✅ FlowCodeExtension instance created');
+
+        // Activate the extension
+        await flowCodeExtension.activate();
+        console.log('✅ FlowCodeExtension activated successfully');
+    } catch (error) {
+        console.error('❌ FlowCodeExtension activation failed:', error);
+        vscode.window.showErrorMessage(`FlowCode activation failed: ${error}`);
+    }
     
     // Register commands
+    console.log('📝 Registering FlowCode commands...');
     const commands = [
-        vscode.commands.registerCommand('flowcode.initialize', () => 
+        // Simple test command that always works
+        vscode.commands.registerCommand('flowcode.test', () => {
+            console.log('🧪 Test command executed!');
+            vscode.window.showInformationMessage('FlowCode is working! 🚀');
+        }),
+
+        vscode.commands.registerCommand('flowcode.initialize', () =>
             flowCodeExtension.initialize()),
-        vscode.commands.registerCommand('flowcode.elevateToArchitect', () => 
+        vscode.commands.registerCommand('flowcode.elevateToArchitect', () =>
             flowCodeExtension.elevateToArchitect()),
-        vscode.commands.registerCommand('flowcode.hotfix', () => 
+        vscode.commands.registerCommand('flowcode.hotfix', () =>
             flowCodeExtension.createHotfix()),
         vscode.commands.registerCommand('flowcode.showGraph', () =>
             flowCodeExtension.showCodeGraph()),
@@ -41,13 +58,29 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('flowcode.generateCode', () =>
             flowCodeExtension.generateCode()),
         vscode.commands.registerCommand('flowcode.showChat', () =>
-            flowCodeExtension.showChat())
+            flowCodeExtension.showChat()),
+
+        // Force show chat without activation check
+        vscode.commands.registerCommand('flowcode.forceShowChat', async () => {
+            try {
+                await flowCodeExtension.showChatInterface();
+                vscode.window.showInformationMessage('Chat interface opened!');
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to open chat: ${error}`);
+            }
+        }),
+
+        // Open specific chat session
+        vscode.commands.registerCommand('flowcode.openChatSession', (sessionId: string) =>
+            flowCodeExtension.openChatSession(sessionId)),
+
+        // Show settings panel
+        vscode.commands.registerCommand('flowcode.showSettings', () =>
+            flowCodeExtension.showSettings())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));
-    
-    // Initialize FlowCode
-    flowCodeExtension.activate();
+    console.log(`✅ Registered ${commands.length} FlowCode commands successfully!`);
 }
 
 export function deactivate() {

@@ -57,7 +57,12 @@
       "properties": {
         "flowcode.ai.provider": {
           "type": "string",
-          "enum": ["openai", "anthropic", "google", "azure"],
+          "enum": [
+            "openai",
+            "anthropic",
+            "google",
+            "azure"
+          ],
           "default": "openai",
           "description": "AI service provider"
         },
@@ -71,6 +76,16 @@
           "default": "",
           "description": "API key for the AI service (stored securely)"
         },
+        "flowcode.ai.maxTokens": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum tokens for AI responses"
+        },
+        "flowcode.customEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Custom API endpoint for OpenAI-compatible services (e.g., DeepSeek)"
+        },
         "flowcode.security.enableAuditing": {
           "type": "boolean",
           "default": true,
@@ -78,7 +93,11 @@
         },
         "flowcode.security.auditLevel": {
           "type": "string",
-          "enum": ["basic", "standard", "comprehensive"],
+          "enum": [
+            "basic",
+            "standard",
+            "comprehensive"
+          ],
           "default": "standard",
           "description": "Security audit level"
         },
@@ -87,7 +106,11 @@
           "items": {
             "type": "string"
           },
-          "default": ["node_modules/**", "*.test.js", "test/**"],
+          "default": [
+            "node_modules/**",
+            "*.test.js",
+            "test/**"
+          ],
           "description": "Patterns to exclude from security auditing"
         },
         "flowcode.performance.enableOptimization": {
@@ -152,7 +175,11 @@
         },
         "flowcode.telemetry.privacyLevel": {
           "type": "string",
-          "enum": ["minimal", "standard", "detailed"],
+          "enum": [
+            "minimal",
+            "standard",
+            "detailed"
+          ],
           "default": "standard",
           "description": "Privacy level for telemetry collection"
         },
@@ -168,7 +195,12 @@
         },
         "flowcode.logging.level": {
           "type": "string",
-          "enum": ["debug", "info", "warn", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
           "default": "info",
           "description": "Logging level"
         },
@@ -221,7 +253,42 @@
         "when": "editorTextFocus"
       }
     ],
+    "views": {
+      "flowcode-sidebar": [
+        {
+          "id": "flowcode-chat",
+          "name": "AI Chat",
+          "when": "true"
+        },
+        {
+          "id": "flowcode-status",
+          "name": "Status",
+          "when": "true"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flowcode-sidebar",
+          "title": "FlowCode",
+          "icon": "$(robot)"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "flowcode.test",
+        "title": "Test FlowCode",
+        "category": "FlowCode",
+        "icon": "$(check)"
+      },
+      {
+        "command": "flowcode.forceShowChat",
+        "title": "Force Show Chat (Debug)",
+        "category": "FlowCode",
+        "icon": "$(comment-discussion)"
+      },
       {
         "command": "flowcode.initialize",
         "title": "Initialize FlowCode",
@@ -316,9 +383,14 @@
         "command": "flowcode.configureApiKey",
         "title": "Configure API Key",
         "category": "FlowCode"
+      },
+      {
+        "command": "flowcode.showSettings",
+        "title": "Show Settings",
+        "category": "FlowCode",
+        "icon": "$(settings-gear)"
       }
     ],
-
     "statusBarItem": {
       "id": "flowcode.status",
       "alignment": "right",
@@ -326,11 +398,13 @@
     }
   },
   "scripts": {
-
     "compile": "tsc -p ./tsconfig.production.json",
     "compile:dev": "tsc -p ./",
     "build:production": "npm run compile && npm run package",
     "watch": "tsc -watch -p ./",
+    "webpack": "webpack",
+    "webpack-dev": "webpack --mode development --watch",
+    "package-bundled": "webpack --mode production --devtool hidden-source-map",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
@@ -373,21 +447,24 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.22.0",
     "chai": "^5.2.1",
-    "eslint": "^8.56.0",
+    "electron-rebuild": "^3.2.9",
     "glob": "^11.0.3",
     "mocha": "^11.7.1",
     "nyc": "^17.1.0",
     "rimraf": "^6.0.1",
-    "sinon": "^21.0.0",
-    "typescript": "^5.8.3"
+    "sinon": "^21.0.0"
   },
   "dependencies": {
     "axios": "^1.6.5",
     "d3": "^7.9.0",
+    "eslint": "^8.56.0",
     "ignore": "^5.3.1",
+    "openai": "^5.10.0",
+    "prebuild-install": "^7.1.3",
     "semver": "^7.5.4",
-    "tree-sitter": "^0.20.4",
-    "tree-sitter-python": "^0.20.4",
-    "tree-sitter-typescript": "^0.20.3"
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-typescript": "^0.21.2",
+    "typescript": "^5.8.3"
   }
 }

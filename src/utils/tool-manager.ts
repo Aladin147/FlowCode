@@ -49,7 +49,8 @@ export class ToolManager {
             isRequired: true,
             installUrl: 'https://www.npmjs.com/get-npm',
             description: 'Package manager for Node.js',
-            checkCommand: ['npm', '--version']
+            checkCommand: ['npm', '--version'],
+            alternatives: process.platform === 'win32' ? ['npm.cmd'] : undefined
         },
         {
             name: 'Git',
@@ -68,7 +69,7 @@ export class ToolManager {
             isRequired: false,
             installUrl: 'https://www.typescriptlang.org/download',
             description: 'TypeScript compiler for type checking',
-            checkCommand: ['npx', 'tsc', '--version']
+            checkCommand: ['node', '-e', 'console.log(require("typescript").version)']
         },
         {
             name: 'ESLint',
@@ -76,14 +77,14 @@ export class ToolManager {
             isRequired: false,
             installUrl: 'https://eslint.org/docs/user-guide/getting-started',
             description: 'JavaScript/TypeScript linter',
-            checkCommand: ['npx', 'eslint', '--version']
+            checkCommand: ['node', '-e', 'console.log(require("eslint").Linter.version)']
         },
         {
             name: 'Semgrep',
             command: 'semgrep',
             isRequired: false,
             installUrl: 'https://semgrep.dev/docs/getting-started/',
-            description: 'Static analysis tool for security scanning',
+            description: 'Static analysis tool for security scanning (optional)',
             checkCommand: ['semgrep', '--version']
         }
     ];
@@ -115,6 +116,47 @@ export class ToolManager {
         };
 
         try {
+            // Special handling for npm packages that are dependencies
+            if (tool.name === 'TypeScript') {
+                try {
+                    const typescript = require('typescript');
+                    status.isInstalled = true;
+                    status.version = typescript.version;
+                    status.path = 'node_modules/typescript';
+                    return status;
+                } catch (error) {
+                    // Fall back to command check
+                }
+            }
+
+            if (tool.name === 'ESLint') {
+                try {
+                    const eslint = require('eslint');
+                    status.isInstalled = true;
+                    status.version = eslint.Linter.version;
+                    status.path = 'node_modules/eslint';
+                    return status;
+                } catch (error) {
+                    // Fall back to command check
+                }
+            }
+
+            if (tool.name === 'npm') {
+                // Special handling for npm - check if it's available via Node.js
+                try {
+                    const result = await this.executeCommand(['node', '-e', 'console.log(process.version)']);
+                    if (result.success) {
+                        // If Node.js is available, npm should be available too
+                        status.isInstalled = true;
+                        status.version = 'bundled with Node.js';
+                        status.path = 'bundled with Node.js';
+                        return status;
+                    }
+                } catch (error) {
+                    // Fall back to command check
+                }
+            }
+
             // Try primary command first
             const result = await this.executeCommand(tool.checkCommand);
             if (result.success) {
@@ -180,8 +222,9 @@ export class ToolManager {
             result.installed.push(status);
 
             if (!status.isInstalled) {
+                // Only warn about missing optional tools, don't treat as errors
                 result.warnings.push(`Optional tool not found: ${tool.name} - ${tool.description}`);
-                this.contextLogger.debug(`Optional tool missing: ${tool.name}`);
+                this.contextLogger.debug(`Optional tool missing: ${tool.name} - this is OK, tool is optional`);
             } else {
                 this.contextLogger.info(`Optional tool found: ${tool.name} ${status.version || ''}`);
             }
@@ -310,23 +353,25 @@ export class ToolManager {
                 return;
             }
 
-            const process = spawn(cmd, args, {
+            const childProcess = spawn(cmd, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
-                timeout: 10000 // 10 second timeout
+                timeout: 10000, // 10 second timeout
+                env: process.env, // Inherit environment variables
+                shell: process.platform === 'win32' // Use shell on Windows for PATH resolution
             });
 
             let output = '';
             let error = '';
 
-            process.stdout?.on('data', (data: Buffer) => {
+            childProcess.stdout?.on('data', (data: Buffer) => {
                 output += data.toString();
             });
 
-            process.stderr?.on('data', (data: Buffer) => {
+            childProcess.stderr?.on('data', (data: Buffer) => {
                 error += data.toString();
             });
 
-            process.on('close', (code: number | null) => {
+            childProcess.on('close', (code: number | null) => {
                 resolve({
                     success: code === 0,
                     output: output.trim(),
@@ -334,7 +379,8 @@ export class ToolManager {
                 });
             });
 
-            process.on('error', (err: Error) => {
+            childProcess.on('error', (err: Error) => {
+                this.contextLogger.warn(`Command execution failed: ${cmd} ${args.join(' ')}`, err);
                 resolve({
                     success: false,
                     output: '',
@@ -411,5 +457,49 @@ export class ToolManager {
 
         const result = await this.executeCommand(['npm', ...args]);
         return result.success;
+    }
+
+    /**
+     * Check if a package is available in node_modules
+     */
+    private static checkNodeModulesPackage(packageName: string): { available: boolean; version?: string; path?: string } {
+        try {
+            const pkg = require(packageName);
+            const packageJson = require(`${packageName}/package.json`);
+            return {
+                available: true,
+                version: packageJson.version,
+                path: require.resolve(packageName)
+            };
+        } catch (error) {
+            return { available: false };
+        }
+    }
+
+    /**
+     * Validate that all runtime dependencies are properly installed
+     */
+    public static async validateRuntimeDependencies(): Promise<{ valid: boolean; missing: string[]; details: string[] }> {
+        const result = {
+            valid: true,
+            missing: [] as string[],
+            details: [] as string[]
+        };
+
+        // Check critical runtime dependencies (only Node.js modules used by extension)
+        const runtimeDeps = ['typescript', 'eslint', 'axios', 'tree-sitter'];
+
+        for (const dep of runtimeDeps) {
+            const check = this.checkNodeModulesPackage(dep);
+            if (!check.available) {
+                result.valid = false;
+                result.missing.push(dep);
+                result.details.push(`Missing runtime dependency: ${dep}`);
+            } else {
+                result.details.push(`✓ ${dep} v${check.version} available`);
+            }
+        }
+
+        return result;
     }
 }

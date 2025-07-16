@@ -1,0 +1,21 @@
+{
+  "name": "flowcode-test",
+  "displayName": "FlowCode Test",
+  "description": "Test extension for debugging",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["*"],
+  "main": "./test-extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "test.hello",
+        "title": "Test Hello",
+        "category": "Test"
+      }
+    ]
+  }
+}

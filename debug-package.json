@@ -1,0 +1,20 @@
+{
+  "name": "debug-node-version",
+  "displayName": "Debug Node Version",
+  "description": "Debug VS Code Node.js version",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["*"],
+  "main": "./debug-node-version.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "debug.nodeVersion",
+        "title": "Debug Node Version"
+      }
+    ]
+  }
+}

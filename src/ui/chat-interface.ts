@@ -6,6 +6,7 @@ import { SecurityValidatorService } from '../services/security-validator';
 import { GraphService } from '../services/graph-service';
 import { HotfixService } from '../services/hotfix-service';
 import { ConfigurationManager } from '../utils/configuration-manager';
+import { PerformanceCache, CacheManager } from '../utils/performance-cache';
 
 export interface ChatMessage {
     id: string;
@@ -23,6 +24,8 @@ export interface ChatMessage {
         tokens?: number;
         actions?: ChatAction[];
         diffs?: CodeDiff[];
+        error?: boolean;
+        typing?: boolean;
     };
 }
 
@@ -106,6 +109,7 @@ export class ChatInterface {
     private isStreaming = false;
     private currentStreamingMessage: ChatMessage | undefined;
     private messageHistory: Map<string, ChatMessage[]> = new Map();
+    private responseCache: PerformanceCache<string>;
 
     constructor(
         private architectService: ArchitectService,
@@ -116,6 +120,13 @@ export class ChatInterface {
         private configManager: ConfigurationManager
     ) {
         this.loadMessageHistory();
+
+        // Initialize response cache for sub-500ms performance
+        this.responseCache = CacheManager.getCache<string>('chat-responses', {
+            maxSize: 10 * 1024 * 1024, // 10MB
+            maxEntries: 500,
+            defaultTTL: 600000 // 10 minutes
+        });
     }
 
     /**
@@ -260,9 +271,11 @@ export class ChatInterface {
     }
 
     /**
-     * Handle user message
+     * Handle user message with optimized streaming
      */
     private async handleUserMessage(content: string, context?: any): Promise<void> {
+        const startTime = performance.now();
+
         try {
             // Add user message
             const userMessage: ChatMessage = {
@@ -276,12 +289,14 @@ export class ChatInterface {
             };
 
             this.messages.push(userMessage);
-            await this.updateWebviewContent();
 
-            // Get current context
-            const chatContext = await this.getCurrentContext();
+            // Immediate UI update for responsiveness
+            this.updateWebviewContentImmediate();
 
-            // Start streaming response
+            // Get current context in parallel with UI update
+            const chatContextPromise = this.getCurrentContext();
+
+            // Start streaming response immediately
             this.isStreaming = true;
             const assistantMessage: ChatMessage = {
                 id: this.generateMessageId(),
@@ -293,24 +308,80 @@ export class ChatInterface {
 
             this.currentStreamingMessage = assistantMessage;
             this.messages.push(assistantMessage);
-            await this.updateWebviewContent();
 
-            // Get AI response with security validation
-            const response = await this.getAIResponse(content, chatContext);
-            
-            // Update message with final response
-            assistantMessage.content = response.content;
-            assistantMessage.metadata = response.metadata;
-            
-            this.isStreaming = false;
-            this.currentStreamingMessage = undefined;
-            await this.updateWebviewContent();
+            // Update UI with streaming indicator
+            this.updateWebviewContentImmediate();
+
+            // Wait for context and start AI response
+            const chatContext = await chatContextPromise;
+
+            // Stream AI response with real-time updates
+            await this.streamAIResponse(content, chatContext, assistantMessage);
+
+            const endTime = performance.now();
+            this.contextLogger.info('Message handled', {
+                duration: endTime - startTime,
+                target: 500,
+                achieved: endTime - startTime < 500
+            });
 
         } catch (error) {
             this.contextLogger.error('Failed to handle user message', error as Error);
             this.addSystemMessage('Error processing your message. Please try again.');
             this.isStreaming = false;
             this.currentStreamingMessage = undefined;
+        }
+    }
+
+    /**
+     * Immediate UI update without async operations
+     */
+    private updateWebviewContentImmediate(): void {
+        if (this.panel && this.panel.webview) {
+            // Use synchronous HTML generation for immediate updates
+            const html = this.generateWebviewContentSync();
+            this.panel.webview.html = html;
+        }
+    }
+
+    /**
+     * Stream AI response with real-time updates
+     */
+    private async streamAIResponse(userMessage: string, context: ChatContext, assistantMessage: ChatMessage): Promise<void> {
+        try {
+            // Check cache first for instant responses
+            const cacheKey = this.generateCacheKey(userMessage, context);
+            const cachedResponse = await this.getCachedResponse(cacheKey);
+
+            if (cachedResponse) {
+                // Simulate streaming for cached responses
+                await this.simulateStreamingResponse(cachedResponse, assistantMessage);
+                return;
+            }
+
+            // Start AI response generation
+            const responsePromise = this.getAIResponse(userMessage, context);
+
+            // Show typing indicator immediately
+            this.showTypingIndicator(assistantMessage);
+
+            // Wait for response and stream it
+            const response = await responsePromise;
+
+            // Cache the response for future use
+            this.cacheResponse(cacheKey, response);
+
+            // Stream the response to UI
+            await this.streamResponseToUI(response, assistantMessage);
+
+        } catch (error) {
+            this.contextLogger.error('Failed to stream AI response', error as Error);
+            assistantMessage.content = 'Sorry, I encountered an error processing your request.';
+            assistantMessage.metadata = { error: true };
+        } finally {
+            this.isStreaming = false;
+            this.currentStreamingMessage = undefined;
+            this.updateWebviewContentImmediate();
         }
     }
 
@@ -3427,6 +3498,135 @@ export class ChatInterface {
             // Initial scroll to bottom
             setTimeout(scrollToBottom, 100);
         `;
+    }
+
+    /**
+     * Generate cache key for responses
+     */
+    private generateCacheKey(userMessage: string, context: ChatContext): string {
+        const contextHash = JSON.stringify({
+            activeFile: context.activeFile,
+            workspaceRoot: context.workspaceRoot,
+            companionGuardStatus: context.companionGuardStatus?.issues?.length || 0
+        });
+
+        return `chat_${Buffer.from(userMessage + contextHash).toString('base64').slice(0, 50)}`;
+    }
+
+    /**
+     * Get cached response if available
+     */
+    private async getCachedResponse(cacheKey: string): Promise<{content: string, metadata: any} | null> {
+        try {
+            // Use performance cache for sub-100ms lookups
+            const cached = this.responseCache?.get(cacheKey);
+            if (cached) {
+                this.contextLogger.debug('Cache hit for chat response', { key: cacheKey.slice(0, 20) });
+                return JSON.parse(cached);
+            }
+            return null;
+        } catch (error) {
+            this.contextLogger.warn('Cache lookup failed', error as Error);
+            return null;
+        }
+    }
+
+    /**
+     * Cache response for future use
+     */
+    private cacheResponse(cacheKey: string, response: {content: string, metadata: any}): void {
+        try {
+            if (this.responseCache) {
+                // Cache for 10 minutes for chat responses
+                this.responseCache.set(cacheKey, JSON.stringify(response), 600000);
+                this.contextLogger.debug('Cached chat response', { key: cacheKey.slice(0, 20) });
+            }
+        } catch (error) {
+            this.contextLogger.warn('Failed to cache response', error as Error);
+        }
+    }
+
+    /**
+     * Show typing indicator
+     */
+    private showTypingIndicator(assistantMessage: ChatMessage): void {
+        assistantMessage.content = '⚡ Thinking...';
+        assistantMessage.metadata = { typing: true };
+        this.updateWebviewContentImmediate();
+    }
+
+    /**
+     * Simulate streaming for cached responses
+     */
+    private async simulateStreamingResponse(response: {content: string, metadata: any}, assistantMessage: ChatMessage): Promise<void> {
+        const words = response.content.split(' ');
+        const chunkSize = Math.max(1, Math.floor(words.length / 10)); // 10 chunks
+
+        for (let i = 0; i < words.length; i += chunkSize) {
+            const chunk = words.slice(i, i + chunkSize).join(' ');
+            assistantMessage.content = words.slice(0, i + chunkSize).join(' ');
+            assistantMessage.metadata = response.metadata;
+
+            this.updateWebviewContentImmediate();
+
+            // Small delay to simulate streaming (50ms for responsiveness)
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
+
+    /**
+     * Stream response to UI in real-time
+     */
+    private async streamResponseToUI(response: {content: string, metadata: any}, assistantMessage: ChatMessage): Promise<void> {
+        // For now, update immediately - real streaming would require API support
+        assistantMessage.content = response.content;
+        assistantMessage.metadata = response.metadata;
+        this.updateWebviewContentImmediate();
+    }
+
+    /**
+     * Generate webview content synchronously for immediate updates
+     */
+    private generateWebviewContentSync(): string {
+        // Simplified synchronous version for immediate updates
+        const messagesHtml = this.renderMessages();
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowCode Chat</title>
+    <style>${this.getChatStyles()}</style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>💬 FlowCode Assistant</h2>
+            <div class="status-indicator ${this.isStreaming ? 'streaming' : 'ready'}">
+                ${this.isStreaming ? '⚡ Processing...' : '✅ Ready'}
+            </div>
+        </div>
+        <div class="messages-container" id="messagesContainer">
+            ${messagesHtml}
+        </div>
+        <div class="input-container">
+            <div class="context-buttons">
+                <button onclick="addFileContext()" title="Add file context">📁</button>
+                <button onclick="addFolderContext()" title="Add folder context">📂</button>
+                <button onclick="addProblemsContext()" title="Add problems context">⚠️</button>
+            </div>
+            <div class="input-wrapper">
+                <textarea id="messageInput" placeholder="Ask FlowCode anything..." rows="3"></textarea>
+                <button onclick="sendMessage()" id="sendButton" ${this.isStreaming ? 'disabled' : ''}>
+                    ${this.isStreaming ? '⏳' : '➤'}
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>${this.getChatScript()}</script>
+</body>
+</html>`;
     }
 
     /**

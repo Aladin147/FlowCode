@@ -39,8 +39,9 @@ export class ConfigurationManager {
     public async getApiConfiguration(): Promise<ApiConfiguration> {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
 
-        const provider = config.get<'openai' | 'anthropic'>('apiProvider', 'openai');
-        const maxTokens = config.get<number>('maxTokens', 2000);
+        const provider = config.get<'openai' | 'anthropic'>('ai.provider', 'openai');
+        const maxTokens = config.get<number>('ai.maxTokens', 2000);
+        const customEndpoint = config.get<string>('customEndpoint', '');
 
         // Try to get API key from secure storage first, fallback to settings
         let apiKey = '';
@@ -96,6 +97,7 @@ export class ConfigurationManager {
         return {
             provider,
             apiKey,
+            endpoint: customEndpoint || undefined,
             maxTokens,
             keyCreatedAt: keyMetadata?.createdAt,
             keyExpiresAt: keyMetadata?.expiresAt,
@@ -126,7 +128,7 @@ export class ConfigurationManager {
         const sanitizedApiKey = apiKey.trim();
 
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
-        await config.update('apiProvider', provider, vscode.ConfigurationTarget.Global);
+        await config.update('ai.provider', provider, vscode.ConfigurationTarget.Global);
 
         // Store API key securely with encryption
         if (this.context?.secrets) {
@@ -165,7 +167,7 @@ export class ConfigurationManager {
 
     public async getMaxTokens(): Promise<number> {
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
-        return config.get<number>('maxTokens', 2000);
+        return config.get<number>('ai.maxTokens', 2000);
     }
 
     public async isCompanionGuardEnabled(): Promise<boolean> {
@@ -186,10 +188,15 @@ export class ConfigurationManager {
         }
     }
 
+    public isWorkspaceAvailable(): boolean {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        return !!(workspaceFolders && workspaceFolders.length > 0);
+    }
+
     public async getWorkspaceRoot(): Promise<string> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
-            throw new Error('No workspace folder found');
+            throw new Error('No workspace folder found. Please open a folder or workspace to use FlowCode features.');
         }
         return workspaceFolders[0]?.uri.fsPath || process.cwd();
     }
@@ -227,8 +234,9 @@ export class ConfigurationManager {
 
         switch (provider) {
             case 'openai':
-                // OpenAI API keys start with 'sk-' and are typically 51 characters long
-                return /^sk-[A-Za-z0-9]{48}$/.test(trimmedKey);
+                // OpenAI and OpenAI-compatible APIs (like DeepSeek) - more flexible validation
+                // Accept keys that start with 'sk-' and have reasonable length (20+ chars)
+                return /^sk-[A-Za-z0-9\-_]{20,}$/.test(trimmedKey);
 
             case 'anthropic':
                 // Anthropic API keys start with 'sk-ant-' and are longer
@@ -463,8 +471,8 @@ export class ConfigurationManager {
         }
 
         const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
-        await config.update('apiKey', undefined, vscode.ConfigurationTarget.Global);
-        await config.update('apiProvider', undefined, vscode.ConfigurationTarget.Global);
+        await config.update('ai.apiKey', undefined, vscode.ConfigurationTarget.Global);
+        await config.update('ai.provider', undefined, vscode.ConfigurationTarget.Global);
 
         this.contextLogger.info('All API credentials cleared from secure storage');
     }
@@ -511,13 +519,19 @@ export class ConfigurationManager {
     /**
      * Test API key validity by making a test request
      */
-    public async testApiKey(provider: 'openai' | 'anthropic', apiKey: string): Promise<boolean> {
+    public async testApiKey(provider: 'openai' | 'anthropic', apiKey: string, customEndpoint?: string): Promise<boolean> {
         try {
             const axios = await import('axios');
 
             switch (provider) {
                 case 'openai':
-                    const openaiResponse = await axios.default.get('https://api.openai.com/v1/models', {
+                    // Use custom endpoint if provided, otherwise use OpenAI default
+                    const baseUrl = customEndpoint || 'https://api.openai.com';
+                    const modelsUrl = `${baseUrl}/v1/models`;
+
+                    this.contextLogger.info(`Testing API key with endpoint: ${modelsUrl}`);
+
+                    const openaiResponse = await axios.default.get(modelsUrl, {
                         headers: {
                             'Authorization': `Bearer ${apiKey}`,
                             'Content-Type': 'application/json'
@@ -527,13 +541,35 @@ export class ConfigurationManager {
                     return openaiResponse.status === 200;
 
                 case 'anthropic':
-                    // Anthropic doesn't have a simple test endpoint, so we'll just validate format
-                    return this.validateApiKeyFormat(apiKey, provider);
+                    // Test Anthropic API with a simple request
+                    try {
+                        const anthropicResponse = await axios.default.post('https://api.anthropic.com/v1/messages', {
+                            model: 'claude-3-haiku-20240307',
+                            max_tokens: 1,
+                            messages: [{ role: 'user', content: 'test' }]
+                        }, {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json',
+                                'anthropic-version': '2023-06-01'
+                            },
+                            timeout: 10000
+                        });
+                        return anthropicResponse.status === 200;
+                    } catch (error) {
+                        // If the request fails due to quota/billing, but auth is valid, it's still a valid key
+                        const axiosError = error as any;
+                        if (axiosError.response?.status === 400 || axiosError.response?.status === 429) {
+                            return true; // Key is valid, just quota/billing issue
+                        }
+                        return false;
+                    }
 
                 default:
                     return false;
             }
         } catch (error) {
+            this.contextLogger.warn(`API key test failed for ${provider}`, error as Error);
             return false;
         }
     }

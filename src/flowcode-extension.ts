@@ -19,6 +19,9 @@ import { SecurityCommands } from './commands/security-commands';
 import { GitHookManager } from './services/git-hook-manager';
 import { ChatInterface } from './ui/chat-interface';
 import { MonitoringDashboard } from './ui/monitoring-dashboard';
+import { ChatTreeProvider } from './ui/chat-tree-provider';
+import { StatusTreeProvider } from './ui/status-tree-provider';
+import { SettingsPanel } from './ui/settings-panel';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -40,6 +43,9 @@ export class FlowCodeExtension {
     private gitHookManager: GitHookManager;
     private chatInterface: ChatInterface;
     private monitoringDashboard: MonitoringDashboard;
+    private chatTreeProvider: ChatTreeProvider;
+    private statusTreeProvider: StatusTreeProvider;
+    private settingsPanel: SettingsPanel;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
     private _isActive: boolean = false;
 
@@ -76,25 +82,48 @@ export class FlowCodeExtension {
             this.graphService,
             this.chatInterface
         );
+
+        // Initialize tree providers for sidebar
+        this.chatTreeProvider = new ChatTreeProvider();
+        this.statusTreeProvider = new StatusTreeProvider(this.configManager);
+        this.settingsPanel = SettingsPanel.getInstance(this.configManager);
     }
 
     public async activate(): Promise<void> {
+        this.contextLogger.info('Starting FlowCode activation...');
+
+        // Check dependencies first
+        await this.checkDependencies();
+        this.contextLogger.info('Dependencies checked successfully');
+
+        // Initialize services (don't require API key for basic activation)
+        await this.initializeServices();
+        this.contextLogger.info('Services initialized successfully');
+
+        // Register tree providers for sidebar views
+        this.registerTreeProviders();
+        this.contextLogger.info('Tree providers registered successfully');
+
+        // Check API configuration (warn but don't fail)
         try {
-            // Check dependencies first
-            await this.checkDependencies();
             await this.configManager.validateConfiguration();
-            await this.initializeServices();
-            this._isActive = true;
-            this.statusBarManager.showReady();
-            vscode.window.showInformationMessage('FlowCode activated successfully!');
-            this.contextLogger.info('FlowCode extension activated successfully');
+            this.contextLogger.info('Configuration validated successfully');
         } catch (error) {
-            this._isActive = false;
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            this.contextLogger.error('Failed to activate FlowCode extension', error as Error);
-            this.statusBarManager.showError(message);
-            vscode.window.showErrorMessage(`FlowCode activation failed: ${message}`);
+            this.contextLogger.warn('API key not configured - some features will be limited', error as Error);
+            vscode.window.showWarningMessage(
+                'FlowCode activated but API key not configured. Configure API key to enable AI features.',
+                'Configure API Key'
+            ).then(selection => {
+                if (selection === 'Configure API Key') {
+                    vscode.commands.executeCommand('flowcode.configureApiKey');
+                }
+            });
         }
+
+        this._isActive = true;
+        this.statusBarManager.showReady();
+        vscode.window.showInformationMessage('FlowCode activated successfully! 🚀');
+        this.contextLogger.info('FlowCode extension activated successfully');
     }
 
     public async deactivate(): Promise<void> {
@@ -257,6 +286,11 @@ export class FlowCodeExtension {
     }
 
     public async configureApiKey(): Promise<void> {
+        // Use the new settings panel for API configuration
+        await this.showSettings();
+    }
+
+    public async configureApiKeyLegacy(): Promise<void> {
         try {
             // Check if API key already exists and offer to replace
             const existingConfig = await this.getExistingApiConfig();
@@ -270,7 +304,11 @@ export class FlowCodeExtension {
                 }
             }
 
-            const provider = await vscode.window.showQuickPick(['OpenAI', 'Anthropic'], {
+            const provider = await vscode.window.showQuickPick([
+                'OpenAI',
+                'OpenAI-Compatible (DeepSeek, etc.)',
+                'Anthropic'
+            ], {
                 placeHolder: 'Select your AI provider',
                 ignoreFocusOut: true
             });
@@ -279,10 +317,27 @@ export class FlowCodeExtension {
                 return;
             }
 
-            const providerLower = provider.toLowerCase() as 'openai' | 'anthropic';
-            const keyFormat = providerLower === 'openai'
+            const isOpenAICompatible = provider.includes('OpenAI');
+            const providerLower = isOpenAICompatible ? 'openai' : 'anthropic';
+            const keyFormat = isOpenAICompatible
                 ? 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
                 : 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+
+            // Ask for custom endpoint if OpenAI-compatible
+            let customEndpoint = '';
+            if (provider === 'OpenAI-Compatible (DeepSeek, etc.)') {
+                customEndpoint = await vscode.window.showInputBox({
+                    prompt: 'Enter the API endpoint URL (e.g., https://api.deepseek.com/v1)',
+                    placeHolder: 'https://api.deepseek.com/v1',
+                    ignoreFocusOut: true,
+                    validateInput: (value) => {
+                        if (value && !value.startsWith('http')) {
+                            return 'Endpoint must be a valid HTTP/HTTPS URL';
+                        }
+                        return undefined;
+                    }
+                }) || '';
+            }
 
             const apiKey = await vscode.window.showInputBox({
                 prompt: `Enter your ${provider} API key`,
@@ -296,12 +351,15 @@ export class FlowCodeExtension {
 
                     const trimmedValue = value.trim();
 
-                    // Basic format validation
+                    // Basic format validation - more flexible for OpenAI-compatible
                     if (providerLower === 'openai' && !trimmedValue.startsWith('sk-')) {
-                        return 'OpenAI API keys must start with "sk-"';
+                        return 'OpenAI/OpenAI-compatible API keys must start with "sk-"';
                     }
                     if (providerLower === 'anthropic' && !trimmedValue.startsWith('sk-ant-')) {
                         return 'Anthropic API keys must start with "sk-ant-"';
+                    }
+                    if (providerLower === 'openai' && trimmedValue.length < 20) {
+                        return 'API key appears to be too short';
                     }
 
                     return null;
@@ -324,10 +382,16 @@ export class FlowCodeExtension {
                     // Store the API key (this will validate format)
                     await this.configManager.setApiConfiguration(providerLower, apiKey);
 
+                    // Store custom endpoint if provided
+                    if (customEndpoint) {
+                        const config = vscode.workspace.getConfiguration('flowcode');
+                        await config.update('customEndpoint', customEndpoint, vscode.ConfigurationTarget.Global);
+                    }
+
                     progress.report({ message: "Testing API key..." });
 
-                    // Test the API key
-                    const isValid = await this.configManager.testApiKey(providerLower, apiKey);
+                    // Test the API key with custom endpoint if provided
+                    const isValid = await this.configManager.testApiKey(providerLower, apiKey, customEndpoint);
                     if (!isValid && providerLower === 'openai') {
                         const proceed = await vscode.window.showWarningMessage(
                             'API key validation failed. The key may be invalid or there may be network issues. Save anyway?',
@@ -377,6 +441,22 @@ export class FlowCodeExtension {
         await this.architectCommands.initialize();
         await this.securityCommands.initialize();
         // Note: GitHookManager doesn't need initialization, it's ready to use
+    }
+
+    private registerTreeProviders(): void {
+        // Register chat tree provider
+        vscode.window.createTreeView('flowcode-chat', {
+            treeDataProvider: this.chatTreeProvider,
+            showCollapseAll: true
+        });
+
+        // Register status tree provider
+        vscode.window.createTreeView('flowcode-status', {
+            treeDataProvider: this.statusTreeProvider,
+            showCollapseAll: false
+        });
+
+        this.contextLogger.info('Tree providers registered for sidebar views');
     }
 
     private async initializeGitHooks(): Promise<void> {
@@ -514,12 +594,24 @@ export class FlowCodeExtension {
     }
 
     private async checkDependencies(): Promise<void> {
+        // First check runtime dependencies (npm packages)
+        const runtimeCheck = await ToolManager.validateRuntimeDependencies();
+        if (!runtimeCheck.valid) {
+            const missingDeps = runtimeCheck.missing.join(', ');
+            vscode.window.showErrorMessage(
+                `❌ Critical runtime dependencies missing: ${missingDeps}. Please reinstall the extension.`
+            );
+            this.contextLogger.error('Runtime dependencies missing: ' + runtimeCheck.missing.join(', '));
+            return;
+        }
+
+        // Then check system tools
         const result = await ToolManager.checkAllDependencies();
 
         if (!result.allRequired) {
             const missingNames = result.missing.map(t => t.name).join(', ');
             const action = await vscode.window.showWarningMessage(
-                `⚠️ Missing required tools: ${missingNames}. FlowCode may not work properly.`,
+                `⚠️ Missing required system tools: ${missingNames}. Some FlowCode features may not work properly.`,
                 'Show Installation Guide',
                 'Continue Anyway'
             );
@@ -528,10 +620,73 @@ export class FlowCodeExtension {
                 await ToolManager.showDependencyStatus();
             }
         }
+
+        // Log successful dependency validation
+        this.contextLogger.info('Runtime dependencies validated successfully');
     }
 
     public async checkDependencyStatus(): Promise<void> {
         await ToolManager.showDependencyStatus();
+    }
+
+    public async debugNpmDetection(): Promise<void> {
+        try {
+            this.contextLogger.info('Starting npm detection debug...');
+
+            // Test different npm detection methods
+            const methods = [
+                { name: 'npm --version', command: ['npm', '--version'] },
+                { name: 'npm.cmd --version', command: ['npm.cmd', '--version'] },
+                { name: 'node -e npm check', command: ['node', '-e', 'console.log(process.version)'] }
+            ];
+
+            for (const method of methods) {
+                try {
+                    const { spawn } = require('child_process');
+                    const result = await new Promise<{success: boolean, output: string, error?: string}>((resolve) => {
+                        const proc = spawn(method.command[0], method.command.slice(1), {
+                            shell: process.platform === 'win32',
+                            env: process.env,
+                            timeout: 5000
+                        });
+
+                        let output = '';
+                        let error = '';
+
+                        proc.stdout?.on('data', (data: Buffer) => output += data.toString());
+                        proc.stderr?.on('data', (data: Buffer) => error += data.toString());
+
+                        proc.on('close', (code: number | null) => {
+                            resolve({
+                                success: code === 0,
+                                output: output.trim(),
+                                error: error.trim() || undefined
+                            });
+                        });
+
+                        proc.on('error', (err: Error) => {
+                            resolve({
+                                success: false,
+                                output: '',
+                                error: err.message
+                            });
+                        });
+                    });
+
+                    this.contextLogger.info(`${method.name}: ${result.success ? 'SUCCESS' : 'FAILED'}`, {
+                        output: result.output,
+                        error: result.error
+                    });
+
+                } catch (error) {
+                    this.contextLogger.error(`${method.name}: ERROR`, error as Error);
+                }
+            }
+
+            vscode.window.showInformationMessage('npm detection debug completed - check output panel');
+        } catch (error) {
+            this.contextLogger.error('npm detection debug failed', error as Error);
+        }
     }
 
     public async installTool(): Promise<void> {
@@ -574,6 +729,28 @@ export class FlowCodeExtension {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to show chat interface: ${message}`);
+        }
+    }
+
+    public async openChatSession(sessionId: string): Promise<void> {
+        // For now, just open the main chat interface
+        // In the future, this could load a specific chat session
+        try {
+            await this.showChatInterface();
+            this.contextLogger.info(`Opening chat session: ${sessionId}`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to open chat session: ${message}`);
+        }
+    }
+
+    public async showSettings(): Promise<void> {
+        try {
+            await this.settingsPanel.show();
+            this.contextLogger.info('Settings panel opened');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to open settings: ${message}`);
         }
     }
 

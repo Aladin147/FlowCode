@@ -303,23 +303,33 @@ Response:`;
         } catch (error) {
             this.contextLogger.error('API request failed', error as Error);
 
-            // Return a fallback response for development
-            return {
-                content: `I'm FlowCode AI Assistant. I received your message: "${prompt.substring(0, 100)}..."
+            // Provide specific error information instead of fake responses
+            const axiosError = error as any;
+            let errorMessage = 'API request failed';
 
-I'm currently in development mode. Once properly configured with an AI provider, I'll be able to provide intelligent coding assistance with security validation and real-time quality feedback.
+            if (axiosError.response) {
+                const status = axiosError.response.status;
+                switch (status) {
+                    case 401:
+                        errorMessage = 'Invalid API key. Please check your API key configuration.';
+                        break;
+                    case 429:
+                        errorMessage = 'Rate limit exceeded. Please wait before making another request.';
+                        break;
+                    case 500:
+                        errorMessage = 'AI service is temporarily unavailable. Please try again later.';
+                        break;
+                    default:
+                        errorMessage = `API request failed with status ${status}: ${axiosError.response.statusText}`;
+                }
+            } else if (axiosError.code === 'ECONNREFUSED') {
+                errorMessage = 'Cannot connect to AI service. Please check your endpoint configuration.';
+            } else if (axiosError.code === 'ETIMEDOUT') {
+                errorMessage = 'Request timed out. Please try again.';
+            }
 
-Key features I'll provide:
-- Code analysis and suggestions
-- Security vulnerability detection
-- Real-time quality gate feedback
-- Architecture-aware refactoring
-- Technical debt tracking
-
-Please configure your AI provider API key to enable full functionality.`,
-                tokens: 0,
-                cost: 0
-            };
+            // Throw the error instead of returning fake responses
+            throw new Error(errorMessage);
         }
     }
 

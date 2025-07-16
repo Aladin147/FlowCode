@@ -3312,9 +3312,13 @@ export class ChatInterface {
      * Escape HTML
      */
     private escapeHtml(text: string): string {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Use proper HTML escaping without DOM manipulation
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
@@ -3563,7 +3567,6 @@ export class ChatInterface {
         const chunkSize = Math.max(1, Math.floor(words.length / 10)); // 10 chunks
 
         for (let i = 0; i < words.length; i += chunkSize) {
-            const chunk = words.slice(i, i + chunkSize).join(' ');
             assistantMessage.content = words.slice(0, i + chunkSize).join(' ');
             assistantMessage.metadata = response.metadata;
 

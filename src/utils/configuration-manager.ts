@@ -254,7 +254,10 @@ export class ConfigurationManager {
         try {
             const encryptionKey = await this.getOrCreateEncryptionKey();
             const iv = crypto.randomBytes(16);
-            const cipher = crypto.createCipher('aes-256-cbc', encryptionKey);
+
+            // Use createCipheriv instead of deprecated createCipher
+            const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+            const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
 
             let encrypted = cipher.update(apiKey, 'utf8', 'hex');
             encrypted += cipher.final('hex');
@@ -282,7 +285,9 @@ export class ConfigurationManager {
                 }
                 const iv = Buffer.from(ivHex, 'hex');
 
-                const decipher = crypto.createDecipher('aes-256-cbc', encryptionKey);
+                // Use createDecipheriv instead of deprecated createDecipher
+                const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+                const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
                 let decrypted = decipher.update(encrypted, 'hex', 'utf8');
                 decrypted += decipher.final('utf8');
 

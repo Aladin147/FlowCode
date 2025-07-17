@@ -106,6 +106,7 @@ export class AgentStateManager {
         try {
             await this.loadState();
             this.startAutoSave();
+            this.setupConfigurationListener();
             this.contextLogger.info('AgentStateManager initialized successfully');
         } catch (error) {
             this.contextLogger.error('Failed to initialize AgentStateManager', error as Error);
@@ -486,6 +487,51 @@ export class AgentStateManager {
     /**
      * Cleanup resources
      */
+    /**
+     * Setup configuration change listener
+     */
+    private setupConfigurationListener(): void {
+        const disposable = vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration('flowcode.agent')) {
+                this.contextLogger.info('Agent configuration changed, updating user preferences');
+                this.updateUserPreferencesFromConfig();
+            }
+        });
+
+        this.context.subscriptions.push(disposable);
+    }
+
+    /**
+     * Update user preferences from current configuration
+     */
+    private updateUserPreferencesFromConfig(): void {
+        try {
+            const agenticConfig = this.configManager.getAgenticConfiguration();
+
+            this.state.userPreferences = {
+                ...this.state.userPreferences,
+                autoApprovalLevel: agenticConfig.autoApprovalLevel,
+                notificationLevel: agenticConfig.notificationLevel,
+                defaultApprovalTimeout: agenticConfig.approvalTimeout,
+                learningEnabled: agenticConfig.enableLearning,
+                adaptiveBehavior: agenticConfig.adaptiveBehavior,
+                riskTolerance: agenticConfig.riskTolerance
+            };
+
+            // Save updated state
+            this.saveState().catch(error => {
+                this.contextLogger.error('Failed to save state after configuration change', error as Error);
+            });
+
+            this.contextLogger.info('User preferences updated from configuration', {
+                riskTolerance: this.state.userPreferences.riskTolerance,
+                autoApprovalLevel: this.state.userPreferences.autoApprovalLevel
+            });
+        } catch (error) {
+            this.contextLogger.error('Failed to update user preferences from configuration', error as Error);
+        }
+    }
+
     public async dispose(): Promise<void> {
         this.stopAutoSave();
         await this.saveState();

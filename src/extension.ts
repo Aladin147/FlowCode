@@ -115,11 +115,33 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('flowcode.showAgentStatus', () =>
             flowCodeExtension.showAgentStatus()),
 
-        vscode.commands.registerCommand('flowcode.pauseExecution', () =>
-            flowCodeExtension.agenticOrchestrator?.pauseExecution()),
+        vscode.commands.registerCommand('flowcode.pauseExecution', async () => {
+            try {
+                if (!flowCodeExtension.agenticOrchestrator) {
+                    vscode.window.showWarningMessage('No autonomous execution is currently running.');
+                    return;
+                }
+                await flowCodeExtension.agenticOrchestrator.pauseExecution();
+                vscode.window.showInformationMessage('Execution paused successfully.');
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                vscode.window.showErrorMessage(`Failed to pause execution: ${message}`);
+            }
+        }),
 
-        vscode.commands.registerCommand('flowcode.cancelExecution', () =>
-            flowCodeExtension.agenticOrchestrator?.cancelExecution()),
+        vscode.commands.registerCommand('flowcode.cancelExecution', async () => {
+            try {
+                if (!flowCodeExtension.agenticOrchestrator) {
+                    vscode.window.showWarningMessage('No autonomous execution is currently running.');
+                    return;
+                }
+                await flowCodeExtension.agenticOrchestrator.cancelExecution();
+                vscode.window.showInformationMessage('Execution cancelled successfully.');
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                vscode.window.showErrorMessage(`Failed to cancel execution: ${message}`);
+            }
+        }),
 
         // Demonstrate complete workflow
         vscode.commands.registerCommand('flowcode.demonstrateWorkflow', () =>

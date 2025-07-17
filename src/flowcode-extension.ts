@@ -112,7 +112,9 @@ export class FlowCodeExtension {
             this.companionGuard,
             this.hotfixService,
             this.graphService,
-            this.chatInterface
+            this.chatInterface,
+            this.agentStateManager,
+            this.agenticOrchestrator
         );
     }
 

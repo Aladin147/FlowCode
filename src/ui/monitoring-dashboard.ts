@@ -6,6 +6,8 @@ import { CompanionGuard } from '../services/companion-guard';
 import { HotfixService } from '../services/hotfix-service';
 import { GraphService } from '../services/graph-service';
 import { ChatInterface } from './chat-interface';
+import { AgentStateManager } from '../services/agent-state-manager';
+import { AgenticOrchestrator } from '../services/agentic-orchestrator';
 
 export class MonitoringDashboard {
     private contextLogger = logger.createContextLogger('MonitoringDashboard');
@@ -19,7 +21,9 @@ export class MonitoringDashboard {
         private companionGuard?: CompanionGuard,
         private hotfixService?: HotfixService,
         private graphService?: GraphService,
-        private chatInterface?: ChatInterface
+        private chatInterface?: ChatInterface,
+        private agentStateManager?: AgentStateManager,
+        private agenticOrchestrator?: AgenticOrchestrator
     ) {}
 
     /**
@@ -220,7 +224,8 @@ export class MonitoringDashboard {
                 performance: this.getPerformanceMetrics(),
                 companionGuard: null,
                 technicalDebt: null,
-                architecture: null
+                architecture: null,
+                agent: null
             };
 
             // Get companion guard status
@@ -270,6 +275,42 @@ export class MonitoringDashboard {
                     }
                 } catch (error) {
                     this.contextLogger.warn('Failed to get architecture insights', error as Error);
+                }
+            }
+
+            // Get agent status
+            if (this.agentStateManager && this.agenticOrchestrator) {
+                try {
+                    const agentState = this.agentStateManager.getState();
+                    const executionStatus = this.agenticOrchestrator.getExecutionStatus();
+                    const taskStats = this.agentStateManager.getTaskStatistics();
+
+                    status.agent = {
+                        isExecuting: executionStatus.isExecuting,
+                        currentTask: agentState.currentTask ? {
+                            id: agentState.currentTask.id,
+                            goal: agentState.currentTask.goal,
+                            status: agentState.currentTask.status,
+                            progress: agentState.currentTask.progress?.percentComplete || 0,
+                            stepsCompleted: agentState.currentTask.steps?.filter(s => s.status === 'completed').length || 0,
+                            totalSteps: agentState.currentTask.steps?.length || 0
+                        } : null,
+                        queueLength: agentState.taskQueue.length,
+                        statistics: {
+                            totalCompleted: taskStats.completedTasks,
+                            totalFailed: taskStats.failedTasks,
+                            successRate: taskStats.successRate,
+                            averageDuration: taskStats.averageDuration
+                        },
+                        userPreferences: {
+                            riskTolerance: agentState.userPreferences.riskTolerance,
+                            autoApprovalLevel: agentState.userPreferences.autoApprovalLevel,
+                            learningEnabled: agentState.userPreferences.learningEnabled
+                        }
+                    };
+                } catch (error) {
+                    this.contextLogger.warn('Failed to get agent status', error as Error);
+                    status.agent = { error: 'Failed to get agent status' };
                 }
             }
 
@@ -341,6 +382,7 @@ export class MonitoringDashboard {
         const architecture = status.architecture || {};
         const performance = status.performance || {};
         const system = status.system || {};
+        const agent = status.agent || {};
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -635,6 +677,48 @@ export class MonitoringDashboard {
             </div>
             <div class="tile-actions">
                 <button class="tile-action" onclick="runQuickAction('runArchitectAnalysis')">🏗️ Analyze</button>
+            </div>
+        </div>
+
+        <!-- Autonomous Agent Tile -->
+        <div class="status-tile">
+            <div class="tile-header">
+                <div class="tile-title">
+                    <span class="tile-icon">🤖</span>
+                    Autonomous Agent
+                </div>
+                <div class="tile-status ${agent.isExecuting ? 'status-active' : 'status-idle'}">
+                    ${agent.isExecuting ? 'Executing' : 'Idle'}
+                </div>
+            </div>
+            <div class="tile-content">
+                ${agent.currentTask ? `
+                    <div class="metric-row">
+                        <span class="metric-label">Current Goal:</span>
+                        <span class="metric-value" title="${agent.currentTask.goal}">${(agent.currentTask.goal || '').substring(0, 30)}${(agent.currentTask.goal || '').length > 30 ? '...' : ''}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Progress:</span>
+                        <span class="metric-value">${agent.currentTask.progress || 0}% (${agent.currentTask.stepsCompleted}/${agent.currentTask.totalSteps})</span>
+                    </div>
+                ` : `
+                    <div class="metric-row">
+                        <span class="metric-label">Queue Length:</span>
+                        <span class="metric-value">${agent.queueLength || 0}</span>
+                    </div>
+                `}
+                <div class="metric-row">
+                    <span class="metric-label">Success Rate:</span>
+                    <span class="metric-value">${agent.statistics ? Math.round(agent.statistics.successRate * 100) : 0}%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Risk Tolerance:</span>
+                    <span class="metric-value">${agent.userPreferences ? (agent.userPreferences.riskTolerance || 'balanced').toUpperCase() : 'UNKNOWN'}</span>
+                </div>
+            </div>
+            <div class="tile-actions">
+                <button class="tile-action" onclick="runQuickAction('showAgentStatus')">📊 Details</button>
+                ${agent.isExecuting ? '<button class="tile-action secondary" onclick="runQuickAction(\'pauseExecution\')">⏸️ Pause</button>' : ''}
             </div>
         </div>
 

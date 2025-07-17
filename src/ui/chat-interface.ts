@@ -311,9 +311,28 @@ export class ChatInterface {
             this.messages.push(userMessage);
 
             // Check if this is an agentic goal request
-            if (this.isAgenticGoal(content) && this.agenticOrchestrator) {
-                await this.handleAgenticGoal(content, userMessage);
-                return;
+            if (this.isAgenticGoal(content)) {
+                if (this.agenticOrchestrator) {
+                    await this.handleAgenticGoal(content, userMessage);
+                    return;
+                } else {
+                    // Autonomous mode not available - inform user
+                    const warningMessage: ChatMessage = {
+                        id: this.generateMessageId(),
+                        type: 'system',
+                        content: '⚠️ **Autonomous Mode Unavailable**\n\nI detected that you want me to perform an autonomous task, but the autonomous agent is not currently available. I\'ll help you with this request using standard chat mode instead.\n\n*To enable autonomous mode, please restart the extension or check your FlowCode configuration.*',
+                        timestamp: Date.now(),
+                        metadata: {
+                            confidence: 80
+                        }
+                    };
+                    this.messages.push(warningMessage);
+                    this.updateWebviewContentImmediate();
+
+                    // Continue with normal chat processing
+                    await this.handleNormalChatMessage(content, userMessage);
+                    return;
+                }
             }
 
             // Immediate UI update for responsiveness
@@ -1898,6 +1917,9 @@ export class ChatInterface {
             <div class="context-indicator">
                 <span class="context-file">${context.activeFile ? '📄 ' + context.activeFile.split('/').pop() : '📁 No file selected'}</span>
                 <span class="guard-status ${context.companionGuardStatus?.status || 'unknown'}">${this.getGuardStatusIcon(context.companionGuardStatus?.status)}</span>
+                <span class="agent-status ${this.agenticOrchestrator ? 'available' : 'unavailable'}" title="${this.agenticOrchestrator ? 'Autonomous agent is available' : 'Autonomous agent is not available'}">
+                    ${this.agenticOrchestrator ? '🤖 Agent Ready' : '⚠️ Agent Unavailable'}
+                </span>
             </div>
         </div>
         
@@ -1984,6 +2006,22 @@ export class ChatInterface {
             .guard-status.ready { background: var(--vscode-testing-iconPassed); }
             .guard-status.running { background: var(--vscode-testing-iconQueued); }
             .guard-status.error { background: var(--vscode-testing-iconFailed); }
+
+            .agent-status {
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 11px;
+                margin-left: 8px;
+            }
+
+            .agent-status.available {
+                background: var(--vscode-testing-iconPassed);
+                color: var(--vscode-foreground);
+            }
+            .agent-status.unavailable {
+                background: var(--vscode-testing-iconFailed);
+                color: var(--vscode-foreground);
+            }
             
             .messages-container {
                 flex: 1;

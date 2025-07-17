@@ -123,7 +123,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Demonstrate complete workflow
         vscode.commands.registerCommand('flowcode.demonstrateWorkflow', () =>
-            flowCodeExtension.demonstrateAgenticWorkflow())
+            flowCodeExtension.demonstrateAgenticWorkflow()),
+
+        // Run integration test
+        vscode.commands.registerCommand('flowcode.runIntegrationTest', () =>
+            flowCodeExtension.runIntegrationTest())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

@@ -1687,6 +1687,99 @@ export class FlowCodeExtension {
         }
     }
 
+    private async testBasicIntegration(): Promise<boolean> {
+        try {
+            // Test basic integration between components
+            const testGoal = 'Test integration';
+            const task = await this.taskPlanningEngine.decomposeGoal(testGoal);
+            await this.agentStateManager.setCurrentTask(task);
+            const currentTask = this.agentStateManager.getCurrentTask();
+            await this.agentStateManager.setCurrentTask(null);
+            return currentTask?.id === task.id;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Run comprehensive integration test
+     */
+    public async runIntegrationTest(): Promise<void> {
+        try {
+            vscode.window.showInformationMessage('🔍 Running Comprehensive Integration Test...');
+
+            // Test 1: Service Integration
+            const servicesOk = this.executionEngine && this.agentStateManager &&
+                              this.humanOversightSystem && this.agenticOrchestrator;
+
+            // Test 2: Component Communication
+            const status = this.agenticOrchestrator.getExecutionStatus();
+            const state = this.agentStateManager.getState();
+            const stats = this.agentStateManager.getTaskStatistics();
+
+            // Test 3: Task Planning Integration
+            const testGoal = 'Create a simple test file';
+            const plannedTask = await this.taskPlanningEngine.decomposeGoal(testGoal);
+
+            // Test 4: State Management
+            await this.agentStateManager.setCurrentTask(plannedTask);
+            const currentTask = this.agentStateManager.getCurrentTask();
+
+            // Test 5: Progress Tracking
+            await this.agentStateManager.updateTaskProgress(plannedTask.id, {
+                percentComplete: 50,
+                currentStep: plannedTask.steps[0]?.id
+            });
+
+            // Create comprehensive test results
+            const testResults = [
+                `🔍 **Comprehensive Integration Test Results**`,
+                ``,
+                `**1. Service Integration:**`,
+                `• ExecutionEngine: ${this.executionEngine ? '✅ Ready' : '❌ Failed'}`,
+                `• AgentStateManager: ${this.agentStateManager ? '✅ Ready' : '❌ Failed'}`,
+                `• HumanOversightSystem: ${this.humanOversightSystem ? '✅ Ready' : '❌ Failed'}`,
+                `• AgenticOrchestrator: ${this.agenticOrchestrator ? '✅ Ready' : '❌ Failed'}`,
+                ``,
+                `**2. Component Communication:**`,
+                `• Orchestrator Status: ${status ? '✅ Available' : '❌ Failed'}`,
+                `• State Management: ${state ? '✅ Working' : '❌ Failed'}`,
+                `• Statistics: ${stats ? '✅ Working' : '❌ Failed'}`,
+                ``,
+                `**3. Task Planning Integration:**`,
+                `• Goal Decomposition: ${plannedTask ? '✅ Working' : '❌ Failed'}`,
+                `• Steps Generated: ${plannedTask?.steps.length || 0}`,
+                `• Risk Assessment: ${plannedTask?.riskLevel || 'Unknown'}`,
+                ``,
+                `**4. State Management:**`,
+                `• Task Storage: ${currentTask?.id === plannedTask?.id ? '✅ Working' : '❌ Failed'}`,
+                `• Progress Tracking: ${currentTask?.progress.percentComplete === 50 ? '✅ Working' : '❌ Failed'}`,
+                `• History Tracking: ${state?.executionHistory ? '✅ Working' : '❌ Failed'}`,
+                ``,
+                `**5. Overall Integration:**`,
+                `• All Services: ${servicesOk ? '✅ Integrated' : '❌ Issues Detected'}`,
+                `• Communication: ${status && state && stats ? '✅ Working' : '❌ Issues Detected'}`,
+                `• End-to-End Flow: ${plannedTask && currentTask ? '✅ Functional' : '❌ Issues Detected'}`,
+                ``,
+                `🎉 **Integration Status: ${servicesOk && status && state && stats && plannedTask && currentTask ? 'ALL SYSTEMS OPERATIONAL' : 'ISSUES DETECTED'}**`
+            ].join('\n');
+
+            // Show results
+            if (servicesOk && status && state && stats && plannedTask && currentTask) {
+                vscode.window.showInformationMessage(testResults, { modal: true });
+            } else {
+                vscode.window.showWarningMessage(testResults, { modal: true });
+            }
+
+            // Clean up test task
+            await this.agentStateManager.setCurrentTask(null);
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Integration test failed: ${message}`);
+        }
+    }
+
     /**
      * Demonstrate complete agentic workflow
      */

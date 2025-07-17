@@ -119,7 +119,11 @@ export async function activate(context: vscode.ExtensionContext) {
             flowCodeExtension.agenticOrchestrator?.pauseExecution()),
 
         vscode.commands.registerCommand('flowcode.cancelExecution', () =>
-            flowCodeExtension.agenticOrchestrator?.cancelExecution())
+            flowCodeExtension.agenticOrchestrator?.cancelExecution()),
+
+        // Demonstrate complete workflow
+        vscode.commands.registerCommand('flowcode.demonstrateWorkflow', () =>
+            flowCodeExtension.demonstrateAgenticWorkflow())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

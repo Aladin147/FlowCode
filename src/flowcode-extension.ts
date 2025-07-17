@@ -16,6 +16,8 @@ import { SecurityValidatorService } from './services/security-validator';
 import { GitHookManager } from './services/git-hook-manager';
 import { ChatInterface } from './ui/chat-interface';
 import { MonitoringDashboard } from './ui/monitoring-dashboard';
+import { GoalExecutionPanel } from './ui/goal-execution-panel';
+import { ProgressMonitoringService } from './services/progress-monitoring-service';
 import { WorkspaceSelectionPanel } from './ui/workspace-selection-panel';
 import { ContextManager } from './services/context-manager';
 import { ContextCompressionService } from './services/context-compression-service';
@@ -51,6 +53,8 @@ export class FlowCodeExtension {
     public agenticOrchestrator: AgenticOrchestrator;
     private chatInterface: ChatInterface;
     private monitoringDashboard: MonitoringDashboard;
+    private goalExecutionPanel: GoalExecutionPanel;
+    private progressMonitoringService: ProgressMonitoringService;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
     private _isActive: boolean = false;
 
@@ -116,6 +120,19 @@ export class FlowCodeExtension {
             this.agentStateManager,
             this.agenticOrchestrator
         );
+
+        this.goalExecutionPanel = new GoalExecutionPanel(
+            this.context,
+            this.agenticOrchestrator,
+            this.agentStateManager,
+            this.humanOversightSystem
+        );
+
+        this.progressMonitoringService = new ProgressMonitoringService(
+            this.context,
+            this.agentStateManager,
+            this.humanOversightSystem
+        );
     }
 
     public async activate(): Promise<void> {
@@ -168,6 +185,8 @@ export class FlowCodeExtension {
         this.companionGuard.dispose();
         this.statusBarManager.dispose();
         this.monitoringDashboard.dispose();
+        this.goalExecutionPanel.dispose();
+        this.progressMonitoringService.dispose();
         this.contextLogger.info('FlowCode extension deactivated');
     }
 
@@ -1541,40 +1560,15 @@ export class FlowCodeExtension {
     }
 
     /**
-     * Execute a user goal autonomously using the agentic orchestrator
+     * Execute a user goal autonomously using the enhanced goal execution panel
      */
     public async executeGoalAutonomously(): Promise<void> {
         try {
-            // Get goal from user
-            const goal = await vscode.window.showInputBox({
-                prompt: 'What would you like the AI agent to do?',
-                placeHolder: 'e.g., Create a new React component with tests',
-                ignoreFocusOut: true
-            });
-
-            if (!goal) {
-                return;
-            }
-
-            vscode.window.showInformationMessage('🤖 Starting autonomous execution...');
-
-            // Execute goal using orchestrator
-            const result = await this.agenticOrchestrator.executeGoal(goal);
-
-            // Show results
-            const message = result.success
-                ? `✅ Goal completed successfully!\n\nCompleted: ${result.completedSteps} steps\nFailed: ${result.failedSteps} steps\nDuration: ${Math.round(result.totalDuration / 1000)}s`
-                : `❌ Goal execution failed.\n\nCompleted: ${result.completedSteps} steps\nFailed: ${result.failedSteps} steps\nDuration: ${Math.round(result.totalDuration / 1000)}s`;
-
-            if (result.success) {
-                vscode.window.showInformationMessage(message);
-            } else {
-                vscode.window.showErrorMessage(message);
-            }
-
+            // Show the enhanced goal execution panel
+            await this.goalExecutionPanel.show();
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
-            vscode.window.showErrorMessage(`Autonomous execution failed: ${message}`);
+            vscode.window.showErrorMessage(`Failed to open goal execution panel: ${message}`);
         }
     }
 

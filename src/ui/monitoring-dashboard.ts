@@ -203,6 +203,46 @@ export class MonitoringDashboard {
                     }
                     break;
 
+                case 'executeGoal':
+                    vscode.commands.executeCommand('flowcode.executeGoal');
+                    break;
+
+                case 'showAgentStatus':
+                    vscode.commands.executeCommand('flowcode.showAgentStatus');
+                    break;
+
+                case 'pauseExecution':
+                    vscode.commands.executeCommand('flowcode.pauseExecution');
+                    break;
+
+                case 'cancelExecution':
+                    vscode.commands.executeCommand('flowcode.cancelExecution');
+                    break;
+
+                case 'showExecutionDetails':
+                    vscode.commands.executeCommand('flowcode.executeGoal');
+                    break;
+
+                case 'showAnalytics':
+                    vscode.window.showInformationMessage('Agent analytics feature coming soon!');
+                    break;
+
+                case 'exportData':
+                    this.exportMonitoringData();
+                    break;
+
+                case 'showChat':
+                    this.openChatInterface();
+                    break;
+
+                case 'showSettings':
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'flowcode.agent');
+                    break;
+
+                case 'showHistory':
+                    vscode.window.showInformationMessage('Execution history feature coming soon!');
+                    break;
+
                 default:
                     this.contextLogger.warn(`Unknown quick action: ${action}`);
             }
@@ -578,6 +618,198 @@ export class MonitoringDashboard {
             background: var(--vscode-button-secondaryHoverBackground);
         }
 
+        .tile-action.warning {
+            background: var(--vscode-testing-iconQueued);
+            color: var(--vscode-foreground);
+        }
+
+        .tile-action.danger {
+            background: var(--vscode-testing-iconFailed);
+            color: var(--vscode-foreground);
+        }
+
+        .status-active {
+            background: var(--vscode-testing-iconPassed);
+            color: var(--vscode-foreground);
+        }
+
+        .status-idle {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+
+        .status-info {
+            background: var(--vscode-charts-blue);
+            color: var(--vscode-foreground);
+        }
+
+        .execution-progress {
+            border-left: 4px solid var(--vscode-testing-iconQueued);
+        }
+
+        .progress-visualization {
+            margin-bottom: 15px;
+        }
+
+        .progress-bar-large {
+            width: 100%;
+            height: 20px;
+            background-color: var(--vscode-progressBar-background);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill-large {
+            height: 100%;
+            background-color: var(--vscode-progressBar-foreground);
+            transition: width 0.3s ease;
+        }
+
+        .progress-text-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--vscode-foreground);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .progress-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .current-step {
+            margin-top: 10px;
+            padding: 8px;
+            background-color: var(--vscode-editor-background);
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        .step-description {
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            font-style: italic;
+        }
+
+        .agent-analytics {
+            border-left: 4px solid var(--vscode-charts-blue);
+        }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .analytics-item {
+            text-align: center;
+            padding: 8px;
+            background-color: var(--vscode-editor-background);
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        .analytics-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--vscode-foreground);
+            margin-bottom: 4px;
+        }
+
+        .analytics-label {
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+        }
+
+        .performance-trend {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            background-color: var(--vscode-editor-background);
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        .trend-label {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .trend-indicator {
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .trend-up {
+            color: var(--vscode-charts-green);
+        }
+
+        .trend-down {
+            color: var(--vscode-charts-red);
+        }
+
+        .trend-neutral {
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .quick-actions {
+            border-left: 4px solid var(--vscode-charts-purple);
+        }
+
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .quick-action-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px 8px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: var(--vscode-foreground);
+        }
+
+        .quick-action-btn:hover:not(:disabled) {
+            background: var(--vscode-list-hoverBackground);
+            transform: translateY(-1px);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .quick-action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .action-icon {
+            font-size: 20px;
+            margin-bottom: 6px;
+        }
+
+        .action-text {
+            font-size: 11px;
+            font-weight: 500;
+            text-align: center;
+        }
+
         .quick-actions {
             background: var(--vscode-input-background);
             border: 1px solid var(--vscode-panel-border);
@@ -719,6 +951,115 @@ export class MonitoringDashboard {
             <div class="tile-actions">
                 <button class="tile-action" onclick="runQuickAction('showAgentStatus')">📊 Details</button>
                 ${agent.isExecuting ? '<button class="tile-action secondary" onclick="runQuickAction(\'pauseExecution\')">⏸️ Pause</button>' : ''}
+            </div>
+        </div>
+
+        <!-- Execution Progress Tile -->
+        ${agent.currentTask ? `
+        <div class="status-tile execution-progress">
+            <div class="tile-header">
+                <div class="tile-title">
+                    <span class="tile-icon">⚡</span>
+                    Execution Progress
+                </div>
+                <div class="tile-status status-active">
+                    RUNNING
+                </div>
+            </div>
+            <div class="tile-content">
+                <div class="progress-visualization">
+                    <div class="progress-bar-large">
+                        <div class="progress-fill-large" style="width: ${agent.currentTask.progress || 0}%"></div>
+                        <div class="progress-text-overlay">${agent.currentTask.progress || 0}%</div>
+                    </div>
+                    <div class="progress-details">
+                        <span>Step ${agent.currentTask.stepsCompleted} of ${agent.currentTask.totalSteps}</span>
+                        <span>ETA: ${this.calculateETA(agent.currentTask)}</span>
+                    </div>
+                </div>
+                <div class="current-step">
+                    <strong>Current Step:</strong>
+                    <div class="step-description">${this.getCurrentStepDescription(agent.currentTask)}</div>
+                </div>
+            </div>
+            <div class="tile-actions">
+                <button class="tile-action" onclick="runQuickAction('showExecutionDetails')">📋 Details</button>
+                <button class="tile-action warning" onclick="runQuickAction('pauseExecution')">⏸️ Pause</button>
+                <button class="tile-action danger" onclick="runQuickAction('cancelExecution')">🛑 Cancel</button>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Agent Analytics Tile -->
+        <div class="status-tile agent-analytics">
+            <div class="tile-header">
+                <div class="tile-title">
+                    <span class="tile-icon">📈</span>
+                    Agent Analytics
+                </div>
+                <div class="tile-status status-info">
+                    INSIGHTS
+                </div>
+            </div>
+            <div class="tile-content">
+                <div class="analytics-grid">
+                    <div class="analytics-item">
+                        <div class="analytics-value">${agent.statistics ? agent.statistics.totalCompleted : 0}</div>
+                        <div class="analytics-label">Completed Tasks</div>
+                    </div>
+                    <div class="analytics-item">
+                        <div class="analytics-value">${agent.statistics ? Math.round(agent.statistics.averageDuration / 1000) : 0}s</div>
+                        <div class="analytics-label">Avg Duration</div>
+                    </div>
+                    <div class="analytics-item">
+                        <div class="analytics-value">${agent.statistics ? Math.round(agent.statistics.successRate * 100) : 0}%</div>
+                        <div class="analytics-label">Success Rate</div>
+                    </div>
+                    <div class="analytics-item">
+                        <div class="analytics-value">${agent.queueLength || 0}</div>
+                        <div class="analytics-label">Queue Length</div>
+                    </div>
+                </div>
+                <div class="performance-trend">
+                    <div class="trend-label">Performance Trend:</div>
+                    <div class="trend-indicator ${this.getPerformanceTrend(agent.statistics)}">
+                        ${this.getPerformanceTrendIcon(agent.statistics)} ${this.getPerformanceTrendText(agent.statistics)}
+                    </div>
+                </div>
+            </div>
+            <div class="tile-actions">
+                <button class="tile-action" onclick="runQuickAction('showAnalytics')">📊 Full Report</button>
+                <button class="tile-action" onclick="runQuickAction('exportData')">💾 Export</button>
+            </div>
+        </div>
+
+        <!-- Quick Actions Tile -->
+        <div class="status-tile quick-actions">
+            <div class="tile-header">
+                <div class="tile-title">
+                    <span class="tile-icon">⚡</span>
+                    Quick Actions
+                </div>
+            </div>
+            <div class="tile-content">
+                <div class="quick-actions-grid">
+                    <button class="quick-action-btn" onclick="runQuickAction('executeGoal')" ${agent.isExecuting ? 'disabled' : ''}>
+                        <span class="action-icon">🚀</span>
+                        <span class="action-text">Execute Goal</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="runQuickAction('showChat')">
+                        <span class="action-icon">💬</span>
+                        <span class="action-text">Open Chat</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="runQuickAction('showSettings')">
+                        <span class="action-icon">⚙️</span>
+                        <span class="action-text">Settings</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="runQuickAction('showHistory')">
+                        <span class="action-icon">📚</span>
+                        <span class="action-text">History</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -967,6 +1308,107 @@ export class MonitoringDashboard {
             return `${minutes}m`;
         } else {
             return `${seconds}s`;
+        }
+    }
+
+    /**
+     * Calculate ETA for current task
+     */
+    private calculateETA(currentTask: any): string {
+        if (!currentTask.startTime || !currentTask.steps) {
+            return 'Unknown';
+        }
+
+        const elapsed = Date.now() - currentTask.startTime;
+        const completedSteps = currentTask.stepsCompleted || 0;
+        const totalSteps = currentTask.totalSteps || 1;
+
+        if (completedSteps === 0) {
+            return 'Calculating...';
+        }
+
+        const avgTimePerStep = elapsed / completedSteps;
+        const remainingSteps = totalSteps - completedSteps;
+        const etaMs = remainingSteps * avgTimePerStep;
+
+        const etaMinutes = Math.round(etaMs / 60000);
+        if (etaMinutes < 1) {
+            return '< 1 min';
+        } else if (etaMinutes < 60) {
+            return `${etaMinutes} min`;
+        } else {
+            const hours = Math.floor(etaMinutes / 60);
+            const mins = etaMinutes % 60;
+            return `${hours}h ${mins}m`;
+        }
+    }
+
+    /**
+     * Get current step description
+     */
+    private getCurrentStepDescription(currentTask: any): string {
+        if (!currentTask.steps || currentTask.steps.length === 0) {
+            return 'Preparing execution...';
+        }
+
+        const currentStep = currentTask.steps.find((step: any) =>
+            step.status === 'executing' || step.status === 'waiting_approval'
+        );
+
+        if (currentStep) {
+            return currentStep.description;
+        }
+
+        const lastCompletedIndex = currentTask.steps.findLastIndex((step: any) =>
+            step.status === 'completed'
+        );
+
+        if (lastCompletedIndex >= 0 && lastCompletedIndex < currentTask.steps.length - 1) {
+            return `Next: ${currentTask.steps[lastCompletedIndex + 1].description}`;
+        }
+
+        return 'Finalizing execution...';
+    }
+
+    /**
+     * Get performance trend
+     */
+    private getPerformanceTrend(statistics: any): string {
+        if (!statistics || !statistics.successRate) {
+            return 'trend-neutral';
+        }
+
+        const successRate = statistics.successRate;
+        if (successRate >= 0.9) {
+            return 'trend-up';
+        } else if (successRate >= 0.7) {
+            return 'trend-neutral';
+        } else {
+            return 'trend-down';
+        }
+    }
+
+    /**
+     * Get performance trend icon
+     */
+    private getPerformanceTrendIcon(statistics: any): string {
+        const trend = this.getPerformanceTrend(statistics);
+        switch (trend) {
+            case 'trend-up': return '📈';
+            case 'trend-down': return '📉';
+            default: return '➡️';
+        }
+    }
+
+    /**
+     * Get performance trend text
+     */
+    private getPerformanceTrendText(statistics: any): string {
+        const trend = this.getPerformanceTrend(statistics);
+        switch (trend) {
+            case 'trend-up': return 'Improving';
+            case 'trend-down': return 'Declining';
+            default: return 'Stable';
         }
     }
 

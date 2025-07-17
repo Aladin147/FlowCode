@@ -64,6 +64,7 @@ export class HumanOversightSystem {
     private activeApprovals: Map<string, ApprovalRequest> = new Map();
     private approvalWorkflows: Map<string, ApprovalWorkflow> = new Map();
     private progressPanel: vscode.WebviewPanel | null = null;
+    private progressUpdateInterval: NodeJS.Timeout | undefined;
     private interventionCallbacks: Map<string, (intervention: HumanIntervention) => void> = new Map();
 
     constructor(private configManager: ConfigurationManager) {
@@ -134,11 +135,14 @@ export class HumanOversightSystem {
                 const html = this.generateProgressHTML(task);
                 this.progressPanel.webview.html = html;
                 this.progressPanel.reveal(vscode.ViewColumn.Beside);
+
+                // Start real-time updates
+                this.startProgressUpdates(task);
             }
 
             this.contextLogger.info('Progress displayed', {
                 taskId: task.id,
-                progress: task.progress.percentComplete
+                progress: task.progress?.percentComplete || 0
             });
         } catch (error) {
             this.contextLogger.error('Failed to show progress', error as Error);
@@ -595,9 +599,46 @@ export class HumanOversightSystem {
     }
 
     /**
+     * Start real-time progress updates
+     */
+    private startProgressUpdates(task: AgenticTask): void {
+        if (this.progressUpdateInterval) {
+            clearInterval(this.progressUpdateInterval);
+        }
+
+        this.progressUpdateInterval = setInterval(() => {
+            if (this.progressPanel && task) {
+                const html = this.generateProgressHTML(task);
+                this.progressPanel.webview.html = html;
+            }
+        }, 2000); // Update every 2 seconds
+    }
+
+    /**
+     * Stop progress updates
+     */
+    private stopProgressUpdates(): void {
+        if (this.progressUpdateInterval) {
+            clearInterval(this.progressUpdateInterval);
+            this.progressUpdateInterval = undefined;
+        }
+    }
+
+    /**
+     * Update progress panel with latest task data
+     */
+    public updateProgress(task: AgenticTask): void {
+        if (this.progressPanel) {
+            const html = this.generateProgressHTML(task);
+            this.progressPanel.webview.html = html;
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public dispose(): void {
+        this.stopProgressUpdates();
         if (this.progressPanel) {
             this.progressPanel.dispose();
         }

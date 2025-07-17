@@ -98,7 +98,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Show workspace selection panel
         vscode.commands.registerCommand('flowcode.selectWorkspace', () =>
-            flowCodeExtension.showWorkspaceSelection())
+            flowCodeExtension.showWorkspaceSelection()),
+
+        // Test TaskPlanningEngine
+        vscode.commands.registerCommand('flowcode.testTaskPlanning', () =>
+            flowCodeExtension.testTaskPlanningEngine())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

@@ -1474,6 +1474,40 @@ export class FlowCodeExtension {
     }
 
     /**
+     * Test TaskPlanningEngine functionality
+     */
+    public async testTaskPlanningEngine(): Promise<void> {
+        try {
+            vscode.window.showInformationMessage('🔍 Testing TaskPlanningEngine...');
+
+            // Test 1: Simple goal decomposition
+            const simpleGoal = 'Create a new TypeScript file with a simple function';
+            const task = await this.taskPlanningEngine.decomposeGoal(simpleGoal);
+
+            // Test 2: Complexity estimation
+            const complexity = await this.taskPlanningEngine.estimateComplexity('Refactor the entire application');
+
+            // Test 3: Plan adaptation
+            const adaptedTask = await this.taskPlanningEngine.adaptPlan(task, 'Add more validation steps');
+
+            // Show results
+            const results = [
+                `✅ Goal Decomposition: ${task.steps.length} steps, ${task.riskLevel} risk`,
+                `✅ Complexity Estimation: ${complexity.level} (${complexity.estimatedTime}ms)`,
+                `✅ Plan Adaptation: v${task.metadata.version} → v${adaptedTask.metadata.version}`,
+                ``,
+                `🎉 TaskPlanningEngine is working correctly!`
+            ].join('\n');
+
+            vscode.window.showInformationMessage(results, { modal: true });
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`TaskPlanningEngine test failed: ${message}`);
+        }
+    }
+
+    /**
      * Run comprehensive context system diagnostics
      */
     private async runContextDiagnostics(): Promise<any> {

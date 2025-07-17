@@ -9,6 +9,9 @@ import { ConfigurationManager } from '../utils/configuration-manager';
 import { PerformanceCache, CacheManager } from '../utils/performance-cache';
 import { ContextManager } from '../services/context-manager';
 import { ContextCompressionService } from '../services/context-compression-service';
+import { TaskPlanningEngine } from '../services/task-planning-engine';
+import { AgenticOrchestrator } from '../services/agentic-orchestrator';
+import { AgentStateManager } from '../services/agent-state-manager';
 
 export interface ChatMessage {
     id: string;
@@ -131,7 +134,10 @@ export class ChatInterface {
         private hotfixService: HotfixService,
         private configManager: ConfigurationManager,
         private contextManager: ContextManager,
-        private contextCompressionService: ContextCompressionService
+        private contextCompressionService: ContextCompressionService,
+        private taskPlanningEngine?: TaskPlanningEngine,
+        private agenticOrchestrator?: AgenticOrchestrator,
+        private agentStateManager?: AgentStateManager
     ) {
         this.loadMessageHistory();
 
@@ -303,6 +309,12 @@ export class ChatInterface {
             };
 
             this.messages.push(userMessage);
+
+            // Check if this is an agentic goal request
+            if (this.isAgenticGoal(content) && this.agenticOrchestrator) {
+                await this.handleAgenticGoal(content, userMessage);
+                return;
+            }
 
             // Immediate UI update for responsiveness
             this.updateWebviewContentImmediate();
@@ -3771,6 +3783,211 @@ export class ChatInterface {
     <script>${this.getChatScript()}</script>
 </body>
 </html>`;
+    }
+
+    /**
+     * Check if user message is an agentic goal request
+     */
+    private isAgenticGoal(content: string): boolean {
+        // Simple heuristics to detect goal-oriented requests
+        const goalKeywords = [
+            'create', 'build', 'make', 'generate', 'implement', 'add', 'write',
+            'refactor', 'optimize', 'fix', 'update', 'modify', 'improve',
+            'analyze', 'review', 'test', 'deploy', 'setup', 'configure'
+        ];
+
+        const goalPhrases = [
+            'can you', 'please', 'i need', 'help me', 'i want to',
+            'could you', 'would you', 'let\'s', 'we should'
+        ];
+
+        const lowerContent = content.toLowerCase();
+
+        // Check for goal keywords
+        const hasGoalKeyword = goalKeywords.some(keyword => lowerContent.includes(keyword));
+
+        // Check for goal phrases
+        const hasGoalPhrase = goalPhrases.some(phrase => lowerContent.includes(phrase));
+
+        // Check for imperative sentences (commands)
+        const isImperative = /^(create|build|make|generate|implement|add|write|refactor|optimize|fix|update|modify|improve|analyze|review|test|deploy|setup|configure)\s+/i.test(content);
+
+        return hasGoalKeyword || hasGoalPhrase || isImperative;
+    }
+
+    /**
+     * Handle agentic goal execution
+     */
+    private async handleAgenticGoal(goal: string, userMessage: ChatMessage): Promise<void> {
+        try {
+            // Immediate UI update
+            this.updateWebviewContentImmediate();
+
+            // Add system message indicating agentic processing
+            const systemMessage: ChatMessage = {
+                id: this.generateMessageId(),
+                type: 'system',
+                content: '🤖 **Autonomous Agent Activated**\n\nAnalyzing your goal and creating execution plan...',
+                timestamp: Date.now(),
+                metadata: {
+                    typing: true
+                }
+            };
+            this.messages.push(systemMessage);
+            this.updateWebviewContentImmediate();
+
+            // Execute goal using agentic orchestrator
+            if (this.agenticOrchestrator) {
+                const result = await this.agenticOrchestrator.executeGoal(goal);
+
+                // Update system message with results
+                systemMessage.content = this.formatAgenticResult(result);
+                systemMessage.metadata = {
+                    typing: false,
+                    confidence: result.success ? 95 : 60
+                };
+
+                // Add execution summary
+                const summaryMessage: ChatMessage = {
+                    id: this.generateMessageId(),
+                    type: 'assistant',
+                    content: this.generateExecutionSummary(result),
+                    timestamp: Date.now(),
+                    metadata: {
+                        actions: this.extractActionsFromResult(result)
+                    }
+                };
+                this.messages.push(summaryMessage);
+            } else {
+                // Fallback if orchestrator not available
+                systemMessage.content = '⚠️ **Autonomous Agent Not Available**\n\nThe autonomous agent is not currently available. Falling back to standard chat mode.';
+                systemMessage.metadata = { typing: false };
+
+                // Continue with normal chat processing
+                await this.handleNormalChatMessage(goal, userMessage);
+            }
+
+            this.updateWebviewContentImmediate();
+
+        } catch (error) {
+            this.contextLogger.error('Failed to handle agentic goal', error as Error);
+
+            // Add error message
+            const errorMessage: ChatMessage = {
+                id: this.generateMessageId(),
+                type: 'system',
+                content: `❌ **Execution Failed**\n\nError: ${(error as Error).message}\n\nFalling back to standard chat mode.`,
+                timestamp: Date.now(),
+                metadata: { error: true }
+            };
+            this.messages.push(errorMessage);
+
+            // Fallback to normal chat
+            await this.handleNormalChatMessage(goal, userMessage);
+        }
+    }
+
+    /**
+     * Handle normal chat message (fallback)
+     */
+    private async handleNormalChatMessage(content: string, userMessage: ChatMessage): Promise<void> {
+        // Continue with the original chat processing logic
+        this.isStreaming = true;
+        const assistantMessage: ChatMessage = {
+            id: this.generateMessageId(),
+            type: 'assistant',
+            content: '',
+            timestamp: Date.now(),
+            metadata: {}
+        };
+
+        this.currentStreamingMessage = assistantMessage;
+        this.messages.push(assistantMessage);
+        this.updateWebviewContentImmediate();
+
+        // Get context and stream response
+        const chatContext = await this.getEnhancedContext(content);
+        await this.streamAIResponse(content, chatContext, assistantMessage);
+    }
+
+    /**
+     * Format agentic execution result
+     */
+    private formatAgenticResult(result: any): string {
+        if (result.success) {
+            return `✅ **Goal Completed Successfully**\n\n` +
+                   `**Steps Completed:** ${result.completedSteps}\n` +
+                   `**Duration:** ${Math.round(result.totalDuration / 1000)}s\n` +
+                   `**Interventions:** ${result.userInterventions?.length || 0}\n\n` +
+                   `The autonomous agent has successfully completed your goal.`;
+        } else {
+            return `⚠️ **Goal Partially Completed**\n\n` +
+                   `**Steps Completed:** ${result.completedSteps}\n` +
+                   `**Steps Failed:** ${result.failedSteps}\n` +
+                   `**Duration:** ${Math.round(result.totalDuration / 1000)}s\n\n` +
+                   `The autonomous agent encountered some issues but made progress on your goal.`;
+        }
+    }
+
+    /**
+     * Generate execution summary
+     */
+    private generateExecutionSummary(result: any): string {
+        const summary = [
+            `## Execution Summary`,
+            ``,
+            `**Goal:** ${result.task?.goal || 'Unknown'}`,
+            `**Status:** ${result.success ? 'Completed' : 'Partial'}`,
+            `**Steps:** ${result.completedSteps}/${result.completedSteps + result.failedSteps}`,
+            `**Duration:** ${Math.round(result.totalDuration / 1000)} seconds`,
+            ``
+        ];
+
+        if (result.task?.steps) {
+            summary.push(`**Steps Executed:**`);
+            result.task.steps.forEach((step: any, index: number) => {
+                const status = step.status === 'completed' ? '✅' :
+                             step.status === 'failed' ? '❌' : '⏳';
+                summary.push(`${index + 1}. ${status} ${step.description}`);
+            });
+        }
+
+        if (result.feedback) {
+            summary.push(``, `**User Feedback:** ${result.feedback.rating}/5 stars`);
+            if (result.feedback.comments) {
+                summary.push(`**Comments:** ${result.feedback.comments}`);
+            }
+        }
+
+        return summary.join('\n');
+    }
+
+    /**
+     * Extract actions from execution result
+     */
+    private extractActionsFromResult(result: any): ChatAction[] {
+        const actions: ChatAction[] = [];
+
+        if (result.task?.steps) {
+            result.task.steps.forEach((step: any) => {
+                if (step.result?.changes) {
+                    step.result.changes.forEach((change: any) => {
+                        actions.push({
+                            id: `action-${step.id}-${change.type}`,
+                            type: change.type === 'create' ? 'file-create' :
+                                  change.type === 'modify' ? 'file-edit' :
+                                  change.type === 'delete' ? 'file-delete' : 'command-run',
+                            description: `${change.type} ${change.path}`,
+                            data: change,
+                            executed: true,
+                            approved: true
+                        });
+                    });
+                }
+            });
+        }
+
+        return actions;
     }
 
     /**

@@ -219,6 +219,72 @@
           "type": "boolean",
           "default": true,
           "description": "Enable pre-push quality gates"
+        },
+        "flowcode.agent.riskTolerance": {
+          "type": "string",
+          "enum": [
+            "conservative",
+            "balanced",
+            "aggressive"
+          ],
+          "default": "balanced",
+          "description": "Agent risk tolerance for autonomous actions"
+        },
+        "flowcode.agent.autoApprovalLevel": {
+          "type": "string",
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Automatic approval level for low-risk actions"
+        },
+        "flowcode.agent.executionTimeout": {
+          "type": "number",
+          "default": 300000,
+          "description": "Maximum execution time for autonomous tasks (milliseconds)"
+        },
+        "flowcode.agent.maxRetryAttempts": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum retry attempts for failed steps"
+        },
+        "flowcode.agent.enableLearning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable agent learning from user feedback and patterns"
+        },
+        "flowcode.agent.adaptiveBehavior": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable adaptive behavior based on user preferences"
+        },
+        "flowcode.agent.notificationLevel": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "normal",
+            "verbose"
+          ],
+          "default": "normal",
+          "description": "Level of notifications during autonomous execution"
+        },
+        "flowcode.agent.approvalTimeout": {
+          "type": "number",
+          "default": 300000,
+          "description": "Timeout for approval requests (milliseconds)"
+        },
+        "flowcode.agent.enableProgressDisplay": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show real-time progress display during execution"
+        },
+        "flowcode.agent.enableInterventions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow user interventions during execution"
         }
       }
     },
@@ -402,6 +468,54 @@
         "title": "Debug Context System",
         "category": "FlowCode",
         "icon": "$(bug)"
+      },
+      {
+        "command": "flowcode.executeGoal",
+        "title": "Execute Goal Autonomously",
+        "category": "FlowCode",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "flowcode.showAgentStatus",
+        "title": "Show Agent Status",
+        "category": "FlowCode",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "flowcode.pauseExecution",
+        "title": "Pause Execution",
+        "category": "FlowCode",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "flowcode.cancelExecution",
+        "title": "Cancel Execution",
+        "category": "FlowCode",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "flowcode.testWeek2",
+        "title": "Test Week 2 Implementation",
+        "category": "FlowCode",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "flowcode.demonstrateWorkflow",
+        "title": "Demonstrate Agentic Workflow",
+        "category": "FlowCode",
+        "icon": "$(play)"
+      },
+      {
+        "command": "flowcode.runIntegrationTest",
+        "title": "Run Integration Test",
+        "category": "FlowCode",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "flowcode.testTaskPlanning",
+        "title": "Test Task Planning Engine",
+        "category": "FlowCode",
+        "icon": "$(gear)"
       }
     ],
     "statusBarItem": {

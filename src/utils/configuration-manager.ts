@@ -799,4 +799,49 @@ export class ConfigurationManager {
             throw error;
         }
     }
+
+    /**
+     * Get agentic configuration settings
+     */
+    public getAgenticConfiguration(): {
+        riskTolerance: 'conservative' | 'balanced' | 'aggressive';
+        autoApprovalLevel: 'none' | 'low' | 'medium' | 'high';
+        executionTimeout: number;
+        maxRetryAttempts: number;
+        enableLearning: boolean;
+        adaptiveBehavior: boolean;
+        notificationLevel: 'minimal' | 'normal' | 'verbose';
+        approvalTimeout: number;
+        enableProgressDisplay: boolean;
+        enableInterventions: boolean;
+    } {
+        const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
+
+        return {
+            riskTolerance: config.get<'conservative' | 'balanced' | 'aggressive'>('agent.riskTolerance', 'balanced'),
+            autoApprovalLevel: config.get<'none' | 'low' | 'medium' | 'high'>('agent.autoApprovalLevel', 'low'),
+            executionTimeout: config.get<number>('agent.executionTimeout', 300000),
+            maxRetryAttempts: config.get<number>('agent.maxRetryAttempts', 3),
+            enableLearning: config.get<boolean>('agent.enableLearning', true),
+            adaptiveBehavior: config.get<boolean>('agent.adaptiveBehavior', true),
+            notificationLevel: config.get<'minimal' | 'normal' | 'verbose'>('agent.notificationLevel', 'normal'),
+            approvalTimeout: config.get<number>('agent.approvalTimeout', 300000),
+            enableProgressDisplay: config.get<boolean>('agent.enableProgressDisplay', true),
+            enableInterventions: config.get<boolean>('agent.enableInterventions', true)
+        };
+    }
+
+    /**
+     * Update agentic configuration setting
+     */
+    public async updateAgenticSetting(key: string, value: any): Promise<void> {
+        try {
+            const config = vscode.workspace.getConfiguration(ConfigurationManager.CONFIG_SECTION);
+            await config.update(`agent.${key}`, value, vscode.ConfigurationTarget.Workspace);
+            this.contextLogger.info(`Updated agentic setting: agent.${key} = ${value}`);
+        } catch (error) {
+            this.contextLogger.error(`Failed to update agentic setting: agent.${key}`, error as Error);
+            throw error;
+        }
+    }
 }

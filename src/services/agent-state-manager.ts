@@ -444,18 +444,21 @@ export class AgentStateManager {
      * Initialize default state
      */
     private initializeDefaultState(): AgentState {
+        // Get current configuration settings
+        const agenticConfig = this.configManager.getAgenticConfiguration();
+
         return {
             currentTask: null,
             taskQueue: [],
             executionHistory: [],
             userPreferences: {
-                autoApprovalLevel: 'none',
+                autoApprovalLevel: agenticConfig.autoApprovalLevel,
                 preferredComplexityLevel: 'moderate',
-                notificationLevel: 'normal',
-                defaultApprovalTimeout: 300000, // 5 minutes
-                learningEnabled: true,
-                adaptiveBehavior: true,
-                riskTolerance: 'balanced'
+                notificationLevel: agenticConfig.notificationLevel,
+                defaultApprovalTimeout: agenticConfig.approvalTimeout,
+                learningEnabled: agenticConfig.enableLearning,
+                adaptiveBehavior: agenticConfig.adaptiveBehavior,
+                riskTolerance: agenticConfig.riskTolerance
             },
             learningMemory: [],
             sessionStartTime: Date.now(),

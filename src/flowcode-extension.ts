@@ -101,7 +101,10 @@ export class FlowCodeExtension {
             this.hotfixService,
             this.configManager,
             this.contextManager,
-            this.contextCompressionService
+            this.contextCompressionService,
+            this.taskPlanningEngine,
+            this.agenticOrchestrator,
+            this.agentStateManager
         );
 
         this.monitoringDashboard = new MonitoringDashboard(

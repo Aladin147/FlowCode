@@ -5,6 +5,7 @@ import { InputValidator, ValidationRule } from '../utils/input-validator';
 import { PerformanceCache, CacheManager } from '../utils/performance-cache';
 import { AdvancedCache, CACHE_STRATEGIES } from '../utils/advanced-cache';
 import { PerformanceMonitor, timed } from '../utils/performance-monitor';
+import { ContextManager, EnhancedContext } from './context-manager';
 import * as crypto from 'crypto';
 
 export interface RefactorOptions {
@@ -75,6 +76,7 @@ export class ArchitectService {
     private readonly MAX_RETRIES = 3;
     private readonly RETRY_DELAY_BASE = 1000; // 1 second base delay
     private performanceMonitor = PerformanceMonitor.getInstance();
+    private contextManager: ContextManager;
 
     constructor(private configManager: ConfigurationManager) {
         this.responseCache = CacheManager.getCache<string>('architect-service', {
@@ -92,7 +94,10 @@ export class ArchitectService {
             CACHE_STRATEGIES.LFU // Least Frequently Used for code patterns
         );
 
-        this.contextLogger.info('ArchitectService initialized with advanced caching');
+        // Initialize context manager for intelligent context compression
+        this.contextManager = new ContextManager(configManager);
+
+        this.contextLogger.info('ArchitectService initialized with advanced caching and context management');
     }
 
     /**
@@ -121,8 +126,18 @@ export class ArchitectService {
                 hasWorkspace: !!context.workspaceRoot
             });
 
-            // Prepare the prompt with context
-            const prompt = this.buildChatPrompt(context);
+            // Get enhanced context using the new context management system
+            const enhancedContext = await this.contextManager.getChatContext(context.userMessage);
+
+            this.contextLogger.info('Enhanced context prepared', {
+                originalSize: enhancedContext.metadata.totalOriginalSize,
+                finalSize: enhancedContext.metadata.finalSize,
+                compressionRatio: enhancedContext.metadata.compressionRatio,
+                processingTime: enhancedContext.metadata.processingTime
+            });
+
+            // Build prompt with enhanced context
+            const prompt = this.buildEnhancedChatPrompt(context.userMessage, enhancedContext);
 
             // Get API configuration
             const apiConfig = await this.configManager.getApiConfiguration();
@@ -138,14 +153,22 @@ export class ArchitectService {
                 metadata: {
                     model: apiConfig.model,
                     provider: apiConfig.provider,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    contextMetadata: {
+                        originalContextSize: enhancedContext.metadata.totalOriginalSize,
+                        finalContextSize: enhancedContext.metadata.finalSize,
+                        compressionRatio: enhancedContext.metadata.compressionRatio,
+                        contextProcessingTime: enhancedContext.metadata.processingTime,
+                        compressionProvider: enhancedContext.metadata.provider
+                    }
                 }
             };
 
             this.contextLogger.info('AI response generated successfully', {
                 responseLength: chatResponse.content.length,
                 cost: chatResponse.cost,
-                tokens: chatResponse.tokens
+                tokens: chatResponse.tokens,
+                contextCompressionRatio: enhancedContext.metadata.compressionRatio
             });
 
             return chatResponse;
@@ -154,6 +177,36 @@ export class ArchitectService {
             this.contextLogger.error('Failed to generate AI response', error as Error);
             throw error;
         }
+    }
+
+    /**
+     * Build enhanced chat prompt with intelligent context
+     */
+    private buildEnhancedChatPrompt(userMessage: string, enhancedContext: EnhancedContext): string {
+        const contextInfo = enhancedContext.compression
+            ? `Context compressed from ${enhancedContext.metadata.totalOriginalSize} to ${enhancedContext.metadata.finalSize} tokens (${(enhancedContext.metadata.compressionRatio * 100).toFixed(1)}% compression)`
+            : `Context size: ${enhancedContext.metadata.finalSize} tokens (no compression needed)`;
+
+        return `You are FlowCode AI Assistant, an intelligent coding companion with access to comprehensive codebase context.
+
+CONTEXT INFORMATION:
+${contextInfo}
+Files analyzed: ${enhancedContext.analysis.fileCount}
+Processing time: ${enhancedContext.metadata.processingTime}ms
+
+CODEBASE CONTEXT:
+${enhancedContext.finalContext}
+
+USER MESSAGE:
+${userMessage}
+
+Please provide a helpful, accurate response based on the codebase context. If suggesting code changes:
+1. Ensure compatibility with existing patterns and architecture
+2. Consider dependencies and imports shown in the context
+3. Maintain code quality and follow project conventions
+4. Explain your reasoning and any assumptions made
+
+Response:`;
     }
 
     /**

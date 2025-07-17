@@ -355,13 +355,34 @@ export class PerformanceMonitor {
  * Decorator for timing method execution
  */
 export function timed(name?: string) {
-    return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    return function (target: any, propertyKey: string, descriptor?: PropertyDescriptor) {
+        // Handle cases where descriptor is undefined (can happen with some TypeScript configurations)
+        if (!descriptor) {
+            descriptor = Object.getOwnPropertyDescriptor(target, propertyKey) || {
+                value: target[propertyKey],
+                writable: true,
+                enumerable: true,
+                configurable: true
+            };
+        }
+
+        if (!descriptor.value || typeof descriptor.value !== 'function') {
+            console.warn(`timed decorator: method ${propertyKey} is not a function or descriptor.value is undefined`);
+            return descriptor;
+        }
+
         const originalMethod = descriptor.value;
-        const operationName = name || `${target.constructor.name}.${propertyKey}`;
+        const operationName = name || `${target.constructor?.name || 'Unknown'}.${propertyKey}`;
 
         descriptor.value = async function (...args: any[]) {
-            const monitor = PerformanceMonitor.getInstance();
-            return await monitor.timeFunction(operationName, () => originalMethod.apply(this, args));
+            try {
+                const monitor = PerformanceMonitor.getInstance();
+                return await monitor.timeFunction(operationName, () => originalMethod.apply(this, args));
+            } catch (error) {
+                console.error(`Performance monitoring failed for ${operationName}:`, error);
+                // Fall back to calling original method without monitoring
+                return await originalMethod.apply(this, args);
+            }
         };
 
         return descriptor;
@@ -372,13 +393,34 @@ export function timed(name?: string) {
  * Decorator for timing synchronous method execution
  */
 export function timedSync(name?: string) {
-    return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    return function (target: any, propertyKey: string, descriptor?: PropertyDescriptor) {
+        // Handle cases where descriptor is undefined
+        if (!descriptor) {
+            descriptor = Object.getOwnPropertyDescriptor(target, propertyKey) || {
+                value: target[propertyKey],
+                writable: true,
+                enumerable: true,
+                configurable: true
+            };
+        }
+
+        if (!descriptor.value || typeof descriptor.value !== 'function') {
+            console.warn(`timedSync decorator: method ${propertyKey} is not a function or descriptor.value is undefined`);
+            return descriptor;
+        }
+
         const originalMethod = descriptor.value;
-        const operationName = name || `${target.constructor.name}.${propertyKey}`;
+        const operationName = name || `${target.constructor?.name || 'Unknown'}.${propertyKey}`;
 
         descriptor.value = function (...args: any[]) {
-            const monitor = PerformanceMonitor.getInstance();
-            return monitor.timeFunctionSync(operationName, () => originalMethod.apply(this, args));
+            try {
+                const monitor = PerformanceMonitor.getInstance();
+                return monitor.timeFunctionSync(operationName, () => originalMethod.apply(this, args));
+            } catch (error) {
+                console.error(`Performance monitoring failed for ${operationName}:`, error);
+                // Fall back to calling original method without monitoring
+                return originalMethod.apply(this, args);
+            }
         };
 
         return descriptor;

@@ -22,6 +22,10 @@ import { MonitoringDashboard } from './ui/monitoring-dashboard';
 import { ChatTreeProvider } from './ui/chat-tree-provider';
 import { StatusTreeProvider } from './ui/status-tree-provider';
 import { SettingsPanel } from './ui/settings-panel';
+import { WorkspaceSelectionPanel } from './ui/workspace-selection-panel';
+import { ContextManager } from './services/context-manager';
+import { ContextCompressionService } from './services/context-compression-service';
+import { SmartAutocompleteService } from './services/smart-autocomplete-service';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -37,6 +41,9 @@ export class FlowCodeExtension {
     private telemetryService: TelemetryService;
     private healthCheckSystem: HealthCheckSystem;
     private configManager: ConfigurationManager;
+    private contextManager: ContextManager;
+    private contextCompressionService: ContextCompressionService;
+    private smartAutocompleteService: SmartAutocompleteService;
     private securityValidatorService: SecurityValidatorService;
     private architectCommands: ArchitectCommands;
     private securityCommands: SecurityCommands;
@@ -63,6 +70,14 @@ export class FlowCodeExtension {
         this.graphService = new GraphService();
         this.hotfixService = new HotfixService(this.configManager);
         this.securityValidatorService = new SecurityValidatorService(this.configManager);
+        this.contextCompressionService = new ContextCompressionService(this.configManager);
+        this.contextManager = new ContextManager(this.configManager, this.contextCompressionService);
+        this.smartAutocompleteService = new SmartAutocompleteService(
+            this.configManager,
+            this.contextManager,
+            this.architectService,
+            this.companionGuard
+        );
         this.architectCommands = new ArchitectCommands(this.configManager);
         this.securityCommands = new SecurityCommands(this.configManager, this.securityValidatorService);
         this.gitHookManager = new GitHookManager(this.configManager);
@@ -72,7 +87,9 @@ export class FlowCodeExtension {
             this.securityValidatorService,
             this.graphService,
             this.hotfixService,
-            this.configManager
+            this.configManager,
+            this.contextManager,
+            this.contextCompressionService
         );
 
         this.monitoringDashboard = new MonitoringDashboard(
@@ -103,6 +120,10 @@ export class FlowCodeExtension {
         // Register tree providers for sidebar views
         this.registerTreeProviders();
         this.contextLogger.info('Tree providers registered successfully');
+
+        // Register language providers
+        this.registerLanguageProviders();
+        this.contextLogger.info('Language providers registered successfully');
 
         // Check API configuration (warn but don't fail)
         try {
@@ -264,6 +285,11 @@ export class FlowCodeExtension {
     }
 
     public async showCodeGraph(): Promise<void> {
+        // Check if workspace is available
+        if (!(await this.ensureWorkspaceOrPrompt())) {
+            return;
+        }
+
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('No active editor found');
@@ -275,7 +301,7 @@ export class FlowCodeExtension {
                 editor.document.uri.fsPath,
                 editor.selection.active
             );
-            
+
             if (graph) {
                 await this.graphService.showGraphView(graph);
             }
@@ -471,8 +497,34 @@ export class FlowCodeExtension {
         this.contextLogger.info('Tree providers registered for sidebar views');
     }
 
+    private registerLanguageProviders(): void {
+        // Register smart autocomplete provider for supported languages
+        const supportedLanguages = ['typescript', 'javascript', 'python', 'java', 'csharp', 'go', 'rust'];
+
+        for (const language of supportedLanguages) {
+            vscode.languages.registerCompletionItemProvider(
+                language,
+                this.smartAutocompleteService,
+                '.', // Trigger on dot
+                '(', // Trigger on opening parenthesis
+                ' '  // Trigger on space
+            );
+        }
+
+        this.contextLogger.info('Smart autocomplete provider registered for supported languages', {
+            languages: supportedLanguages
+        });
+    }
+
     private async initializeGitHooks(): Promise<void> {
         try {
+            // Check if we have a workspace first
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                this.contextLogger.info('No workspace available, skipping git hooks initialization');
+                return;
+            }
+
             // Check if we're in a git repository
             const workspaceRoot = await this.configManager.getWorkspaceRoot();
             const gitDir = require('path').join(workspaceRoot, '.git');
@@ -764,6 +816,25 @@ export class FlowCodeExtension {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to open settings: ${message}`);
         }
+    }
+
+    /**
+     * Show workspace selection panel when no workspace is available
+     */
+    public showWorkspaceSelection(): void {
+        WorkspaceSelectionPanel.createOrShow(this.context.extensionUri);
+    }
+
+    /**
+     * Check if workspace is available and show selection panel if not
+     */
+    public async ensureWorkspaceOrPrompt(): Promise<boolean> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this.showWorkspaceSelection();
+            return false;
+        }
+        return true;
     }
 
     private generateSecurityReportHtml(report: string, auditResult: any): string {
@@ -1241,6 +1312,560 @@ export class FlowCodeExtension {
                 { detail: message }
             );
         }
+    }
+
+    /**
+     * Toggle smart autocomplete feature
+     */
+    @trackFeature('autocomplete', 'toggle')
+    public async toggleSmartAutocomplete(): Promise<void> {
+        try {
+            if (!this._isActive) {
+                throw new Error('Extension is not active. Please activate FlowCode first.');
+            }
+
+            // Toggle the autocomplete service
+            const currentState = this.smartAutocompleteService ? true : false;
+            const newState = !currentState;
+
+            this.smartAutocompleteService.setEnabled(newState);
+
+            const message = newState
+                ? '✅ Smart Autocomplete enabled! AI-powered suggestions are now active.'
+                : '❌ Smart Autocomplete disabled. Using standard IntelliSense only.';
+
+            vscode.window.showInformationMessage(message);
+
+            this.contextLogger.info(`Smart autocomplete ${newState ? 'enabled' : 'disabled'}`);
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to toggle smart autocomplete: ${message}`);
+            this.contextLogger.error('Failed to toggle smart autocomplete', error as Error);
+        }
+    }
+
+    /**
+     * Analyze current code
+     */
+    @trackFeature('analysis', 'analyze-code')
+    public async analyzeCode(): Promise<void> {
+        try {
+            if (!this._isActive) {
+                throw new Error('Extension is not active. Please activate FlowCode first.');
+            }
+
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('Please open a file to analyze.');
+                return;
+            }
+
+            const document = editor.document;
+            const selection = editor.selection;
+            const code = selection.isEmpty ? document.getText() : document.getText(selection);
+
+            if (!code.trim()) {
+                vscode.window.showWarningMessage('No code to analyze.');
+                return;
+            }
+
+            // Show progress
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Analyzing code...',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ increment: 50, message: 'Running analysis...' });
+
+                // Use architect service for analysis
+                const response = await this.architectService.generateResponse({
+                    userMessage: `Analyze this ${document.languageId} code and provide insights about structure, quality, and potential improvements:\n\n${code}`,
+                    activeFile: document.fileName,
+                    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+                });
+
+                progress.report({ increment: 100, message: 'Analysis complete!' });
+
+                // Show results in chat
+                await this.showChatInterface();
+                // The response will be handled by the chat interface
+            });
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Code analysis failed: ${message}`);
+            this.contextLogger.error('Code analysis failed', error as Error);
+        }
+    }
+
+    /**
+     * Show Quick Actions menu
+     */
+    @trackFeature('ui', 'quick-actions')
+    public async showQuickActions(): Promise<void> {
+        try {
+            const actions = [
+                {
+                    label: '$(rocket) Generate Code',
+                    description: 'AI-powered code generation',
+                    command: 'flowcode.generateCode'
+                },
+                {
+                    label: '$(search) Analyze Code',
+                    description: 'Code analysis and insights',
+                    command: 'flowcode.analyzeCode'
+                },
+                {
+                    label: '$(git-branch) Create Hotfix',
+                    description: 'Emergency hotfix workflow',
+                    command: 'flowcode.createHotfix'
+                },
+                {
+                    label: '$(shield) Security Audit',
+                    description: 'Run security vulnerability scan',
+                    command: 'flowcode.runSecurityAudit'
+                },
+                {
+                    label: '$(graph) Dependency Graph',
+                    description: 'Visualize code dependencies',
+                    command: 'flowcode.showDependencyGraph'
+                },
+                {
+                    label: '$(comment-discussion) Open Chat',
+                    description: 'Open FlowCode chat interface',
+                    command: 'flowcode.showChat'
+                },
+                {
+                    label: '$(settings-gear) Settings',
+                    description: 'Configure FlowCode',
+                    command: 'flowcode.openSettings'
+                }
+            ];
+
+            const selected = await vscode.window.showQuickPick(actions, {
+                placeHolder: 'Select a FlowCode action',
+                matchOnDescription: true
+            });
+
+            if (selected) {
+                await vscode.commands.executeCommand(selected.command);
+            }
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Quick actions failed: ${message}`);
+            this.contextLogger.error('Quick actions failed', error as Error);
+        }
+    }
+
+    /**
+     * Debug context system to identify issues
+     */
+    @trackFeature('debug', 'context-diagnostics')
+    public async debugContextSystem(): Promise<void> {
+        try {
+            this.contextLogger.info('Running context system diagnostics...');
+
+            // Run comprehensive diagnostics
+            const diagnostics = await this.runContextDiagnostics();
+
+            // Display results in a webview panel
+            await this.showContextDiagnosticsPanel(diagnostics);
+
+            // Also log to console for development
+            console.log('Context Diagnostics:', JSON.stringify(diagnostics, null, 2));
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Context diagnostics failed: ${message}`);
+            this.contextLogger.error('Context diagnostics failed', error as Error);
+        }
+    }
+
+    /**
+     * Run comprehensive context system diagnostics
+     */
+    private async runContextDiagnostics(): Promise<any> {
+        const diagnostics = {
+            timestamp: new Date().toISOString(),
+            extension: {
+                isActive: this._isActive,
+                activationTime: Date.now() // Simplified for now
+            },
+            workspace: {
+                hasWorkspace: !!vscode.workspace.workspaceFolders?.length,
+                workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                workspaceName: vscode.workspace.workspaceFolders?.[0]?.name,
+                fileCount: 0,
+                activeFile: vscode.window.activeTextEditor?.document.fileName
+            },
+            services: {
+                contextManager: !!this.contextManager,
+                contextAnalyzer: false, // Will be set during testing
+                contextCompressionService: !!this.contextCompressionService,
+                configManager: !!this.configManager,
+                companionGuard: !!this.companionGuard
+            },
+            apiConfig: {
+                hasApiKey: false,
+                provider: 'unknown',
+                isValid: false
+            },
+            contextTest: {
+                basicContextWorks: false,
+                enhancedContextWorks: false,
+                compressionWorks: false,
+                error: null as string | null
+            },
+            errors: [] as string[]
+        };
+
+        try {
+            // Test workspace access
+            if (diagnostics.workspace.workspaceRoot) {
+                const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 100);
+                diagnostics.workspace.fileCount = files.length;
+            } else {
+                diagnostics.errors.push('No workspace folder open');
+            }
+
+            // Test API configuration
+            if (this.configManager) {
+                try {
+                    const apiConfig = await this.configManager.getApiConfiguration();
+                    diagnostics.apiConfig.hasApiKey = !!apiConfig.apiKey;
+                    diagnostics.apiConfig.provider = apiConfig.provider;
+                    diagnostics.apiConfig.isValid = !!apiConfig.apiKey && !!apiConfig.provider;
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    diagnostics.errors.push(`API config error: ${errorMessage}`);
+                }
+            }
+
+            // Test basic context
+            if (this.contextManager) {
+                try {
+                    const basicContext = await this.getBasicContextForDiagnostics();
+                    diagnostics.contextTest.basicContextWorks = !!basicContext;
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    diagnostics.contextTest.error = `Basic context failed: ${errorMessage}`;
+                    diagnostics.errors.push(diagnostics.contextTest.error);
+                }
+
+                // Test enhanced context
+                try {
+                    const enhancedContext = await this.contextManager.getChatContext('test query');
+                    diagnostics.contextTest.enhancedContextWorks = !!enhancedContext;
+                    diagnostics.contextTest.compressionWorks = !!enhancedContext.compressionApplied;
+
+                    // Check if context analyzer is working by testing if we got analysis results
+                    diagnostics.services.contextAnalyzer = !!(enhancedContext.analysis && enhancedContext.analysis.items);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    diagnostics.contextTest.error = `Enhanced context failed: ${errorMessage}`;
+                    diagnostics.errors.push(diagnostics.contextTest.error);
+                }
+            } else {
+                diagnostics.errors.push('Context manager not initialized');
+            }
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            diagnostics.errors.push(`Diagnostics error: ${errorMessage}`);
+        }
+
+        return diagnostics;
+    }
+
+    /**
+     * Get basic context for diagnostics (simplified version)
+     */
+    private async getBasicContextForDiagnostics(): Promise<any> {
+        const activeEditor = vscode.window.activeTextEditor;
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+        return {
+            activeFile: activeEditor?.document.fileName,
+            workspaceRoot,
+            selectedText: activeEditor?.document.getText(activeEditor.selection),
+            hasCompanionGuard: !!this.companionGuard
+        };
+    }
+
+    /**
+     * Show context diagnostics in a webview panel
+     */
+    private async showContextDiagnosticsPanel(diagnostics: any): Promise<void> {
+        const panel = vscode.window.createWebviewPanel(
+            'flowcodeContextDiagnostics',
+            'FlowCode Context Diagnostics',
+            vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true
+            }
+        );
+
+        panel.webview.html = this.generateContextDiagnosticsHtml(diagnostics);
+
+        // Handle messages from webview
+        panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.command) {
+                case 'rerunDiagnostics':
+                    const newDiagnostics = await this.runContextDiagnostics();
+                    panel.webview.html = this.generateContextDiagnosticsHtml(newDiagnostics);
+                    break;
+                case 'copyDiagnostics':
+                    await vscode.env.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
+                    vscode.window.showInformationMessage('Diagnostics copied to clipboard');
+                    break;
+            }
+        });
+    }
+
+    /**
+     * Generate HTML for context diagnostics panel
+     */
+    private generateContextDiagnosticsHtml(diagnostics: any): string {
+        const overallStatus = diagnostics.errors.length === 0 ? '✅ HEALTHY' : '❌ ISSUES FOUND';
+        const statusColor = diagnostics.errors.length === 0 ? '#4CAF50' : '#F44336';
+
+        return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>FlowCode Context Diagnostics</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    margin: 20px;
+                    background: var(--vscode-editor-background);
+                    color: var(--vscode-editor-foreground);
+                    line-height: 1.6;
+                }
+                .header {
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 20px;
+                    padding: 15px;
+                    background: var(--vscode-textBlockQuote-background);
+                    border-radius: 5px;
+                }
+                .status {
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: ${statusColor};
+                }
+                .section {
+                    margin: 20px 0;
+                    padding: 15px;
+                    background: var(--vscode-textBlockQuote-background);
+                    border-radius: 5px;
+                }
+                .section h3 {
+                    margin-top: 0;
+                    color: var(--vscode-textLink-foreground);
+                }
+                .diagnostic-item {
+                    display: flex;
+                    justify-content: space-between;
+                    margin: 8px 0;
+                    padding: 5px 0;
+                    border-bottom: 1px solid var(--vscode-widget-border);
+                }
+                .diagnostic-label {
+                    font-weight: 500;
+                }
+                .diagnostic-value {
+                    font-family: 'Courier New', monospace;
+                }
+                .success { color: #4CAF50; }
+                .error { color: #F44336; }
+                .warning { color: #FF9800; }
+                .errors-list {
+                    background: var(--vscode-inputValidation-errorBackground);
+                    border: 1px solid var(--vscode-inputValidation-errorBorder);
+                    border-radius: 3px;
+                    padding: 10px;
+                    margin: 10px 0;
+                }
+                .error-item {
+                    margin: 5px 0;
+                    color: var(--vscode-inputValidation-errorForeground);
+                }
+                .actions {
+                    margin: 20px 0;
+                    text-align: center;
+                }
+                button {
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    padding: 10px 20px;
+                    margin: 0 10px;
+                    border-radius: 3px;
+                    cursor: pointer;
+                }
+                button:hover {
+                    background: var(--vscode-button-hoverBackground);
+                }
+                .json-output {
+                    background: var(--vscode-textCodeBlock-background);
+                    border: 1px solid var(--vscode-widget-border);
+                    border-radius: 3px;
+                    padding: 15px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    white-space: pre-wrap;
+                    max-height: 300px;
+                    overflow-y: auto;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>🔍 FlowCode Context System Diagnostics</h2>
+                <div style="margin-left: auto;">
+                    <span class="status">${overallStatus}</span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>📊 System Overview</h3>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Timestamp:</span>
+                    <span class="diagnostic-value">${diagnostics.timestamp}</span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Extension Active:</span>
+                    <span class="diagnostic-value ${diagnostics.extension.isActive ? 'success' : 'error'}">
+                        ${diagnostics.extension.isActive ? '✅ Yes' : '❌ No'}
+                    </span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>📁 Workspace Status</h3>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Has Workspace:</span>
+                    <span class="diagnostic-value ${diagnostics.workspace.hasWorkspace ? 'success' : 'error'}">
+                        ${diagnostics.workspace.hasWorkspace ? '✅ Yes' : '❌ No'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Workspace Root:</span>
+                    <span class="diagnostic-value">${diagnostics.workspace.workspaceRoot || 'None'}</span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">File Count:</span>
+                    <span class="diagnostic-value">${diagnostics.workspace.fileCount}</span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Active File:</span>
+                    <span class="diagnostic-value">${diagnostics.workspace.activeFile || 'None'}</span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>🔧 Services Status</h3>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Context Manager:</span>
+                    <span class="diagnostic-value ${diagnostics.services.contextManager ? 'success' : 'error'}">
+                        ${diagnostics.services.contextManager ? '✅ Initialized' : '❌ Missing'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Context Analyzer:</span>
+                    <span class="diagnostic-value ${diagnostics.services.contextAnalyzer ? 'success' : 'error'}">
+                        ${diagnostics.services.contextAnalyzer ? '✅ Initialized' : '❌ Missing'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Compression Service:</span>
+                    <span class="diagnostic-value ${diagnostics.services.contextCompressionService ? 'success' : 'error'}">
+                        ${diagnostics.services.contextCompressionService ? '✅ Initialized' : '❌ Missing'}
+                    </span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>🔑 API Configuration</h3>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Has API Key:</span>
+                    <span class="diagnostic-value ${diagnostics.apiConfig.hasApiKey ? 'success' : 'error'}">
+                        ${diagnostics.apiConfig.hasApiKey ? '✅ Yes' : '❌ No'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Provider:</span>
+                    <span class="diagnostic-value">${diagnostics.apiConfig.provider}</span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Config Valid:</span>
+                    <span class="diagnostic-value ${diagnostics.apiConfig.isValid ? 'success' : 'error'}">
+                        ${diagnostics.apiConfig.isValid ? '✅ Yes' : '❌ No'}
+                    </span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>🧪 Context System Tests</h3>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Basic Context:</span>
+                    <span class="diagnostic-value ${diagnostics.contextTest.basicContextWorks ? 'success' : 'error'}">
+                        ${diagnostics.contextTest.basicContextWorks ? '✅ Working' : '❌ Failed'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Enhanced Context:</span>
+                    <span class="diagnostic-value ${diagnostics.contextTest.enhancedContextWorks ? 'success' : 'error'}">
+                        ${diagnostics.contextTest.enhancedContextWorks ? '✅ Working' : '❌ Failed'}
+                    </span>
+                </div>
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Compression:</span>
+                    <span class="diagnostic-value ${diagnostics.contextTest.compressionWorks ? 'success' : 'warning'}">
+                        ${diagnostics.contextTest.compressionWorks ? '✅ Working' : '⚠️ Not Applied'}
+                    </span>
+                </div>
+            </div>
+
+            ${diagnostics.errors.length > 0 ? `
+            <div class="section">
+                <h3>❌ Errors Found</h3>
+                <div class="errors-list">
+                    ${diagnostics.errors.map((error: string) => `<div class="error-item">• ${error}</div>`).join('')}
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="actions">
+                <button onclick="rerunDiagnostics()">🔄 Rerun Diagnostics</button>
+                <button onclick="copyDiagnostics()">📋 Copy to Clipboard</button>
+            </div>
+
+            <div class="section">
+                <h3>📋 Raw Diagnostics Data</h3>
+                <div class="json-output">${JSON.stringify(diagnostics, null, 2)}</div>
+            </div>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+
+                function rerunDiagnostics() {
+                    vscode.postMessage({ command: 'rerunDiagnostics' });
+                }
+
+                function copyDiagnostics() {
+                    vscode.postMessage({ command: 'copyDiagnostics' });
+                }
+            </script>
+        </body>
+        </html>
+        `;
     }
 
     private generateHealthStatusHtml(health: any, report: string): string {

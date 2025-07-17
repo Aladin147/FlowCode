@@ -201,19 +201,55 @@ export class ConfigurationManager {
         return workspaceFolders[0]?.uri.fsPath || process.cwd();
     }
 
+    /**
+     * Get workspace root with fallback to temp directory when no workspace is available
+     */
+    public async getWorkspaceRootOrFallback(): Promise<string> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            // Use a temp directory for FlowCode when no workspace is available
+            const os = require('os');
+            const path = require('path');
+            return path.join(os.tmpdir(), 'flowcode-temp');
+        }
+        return workspaceFolders[0]?.uri.fsPath || process.cwd();
+    }
+
     public async getFlowCodeDirectory(): Promise<string> {
         const workspaceRoot = await this.getWorkspaceRoot();
         const flowCodeDir = path.join(workspaceRoot, '.flowcode');
-        
+
         if (!fs.existsSync(flowCodeDir)) {
             fs.mkdirSync(flowCodeDir, { recursive: true });
         }
-        
+
+        return flowCodeDir;
+    }
+
+    /**
+     * Get FlowCode directory with fallback when no workspace is available
+     */
+    public async getFlowCodeDirectoryOrFallback(): Promise<string> {
+        const workspaceRoot = await this.getWorkspaceRootOrFallback();
+        const flowCodeDir = path.join(workspaceRoot, '.flowcode');
+
+        if (!fs.existsSync(flowCodeDir)) {
+            fs.mkdirSync(flowCodeDir, { recursive: true });
+        }
+
         return flowCodeDir;
     }
 
     public async getDebtFilePath(): Promise<string> {
         const flowCodeDir = await this.getFlowCodeDirectory();
+        return path.join(flowCodeDir, 'debt.json');
+    }
+
+    /**
+     * Get debt file path with fallback when no workspace is available
+     */
+    public async getDebtFilePathOrFallback(): Promise<string> {
+        const flowCodeDir = await this.getFlowCodeDirectoryOrFallback();
         return path.join(flowCodeDir, 'debt.json');
     }
 

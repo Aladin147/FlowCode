@@ -88,7 +88,8 @@ export class HotfixService {
      */
     private async ensureHotfixDirectoryExists(): Promise<void> {
         try {
-            const debtFilePath = await this.configManager.getDebtFilePath();
+            // Use fallback method that works without workspace
+            const debtFilePath = await this.configManager.getDebtFilePathOrFallback();
             const debtDir = path.dirname(debtFilePath);
 
             if (!fs.existsSync(debtDir)) {

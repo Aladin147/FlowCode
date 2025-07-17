@@ -7,6 +7,8 @@ import { GraphService } from '../services/graph-service';
 import { HotfixService } from '../services/hotfix-service';
 import { ConfigurationManager } from '../utils/configuration-manager';
 import { PerformanceCache, CacheManager } from '../utils/performance-cache';
+import { ContextManager } from '../services/context-manager';
+import { ContextCompressionService } from '../services/context-compression-service';
 
 export interface ChatMessage {
     id: string;
@@ -26,6 +28,14 @@ export interface ChatMessage {
         diffs?: CodeDiff[];
         error?: boolean;
         typing?: boolean;
+        confidence?: number; // AI confidence score (0-100)
+        contextQuality?: number; // Context quality score (0-100)
+        compressionApplied?: boolean; // Whether context compression was used
+        trustIndicators?: {
+            dataSource: string;
+            processingTime: number;
+            contextSize: number;
+        };
     };
 }
 
@@ -98,6 +108,8 @@ export interface ChatContext {
     selectedText?: string;
     recentFiles?: string[];
     companionGuardStatus?: any;
+    contextConfidence?: number;
+    compressionApplied?: boolean;
 }
 
 export class ChatInterface {
@@ -117,7 +129,9 @@ export class ChatInterface {
         private securityValidator: SecurityValidatorService,
         private graphService: GraphService,
         private hotfixService: HotfixService,
-        private configManager: ConfigurationManager
+        private configManager: ConfigurationManager,
+        private contextManager: ContextManager,
+        private contextCompressionService: ContextCompressionService
     ) {
         this.loadMessageHistory();
 
@@ -293,8 +307,8 @@ export class ChatInterface {
             // Immediate UI update for responsiveness
             this.updateWebviewContentImmediate();
 
-            // Get current context in parallel with UI update
-            const chatContextPromise = this.getCurrentContext();
+            // Get enhanced context in parallel with UI update
+            const chatContextPromise = this.getEnhancedContext(content);
 
             // Start streaming response immediately
             this.isStreaming = true;
@@ -389,6 +403,7 @@ export class ChatInterface {
      * Get AI response with security validation and dependency analysis
      */
     private async getAIResponse(userMessage: string, context: ChatContext): Promise<{content: string, metadata: any}> {
+        const startTime = performance.now();
         try {
             // Get dependency analysis and debt information if we have an active file
             let dependencyAnalysis = null;
@@ -440,12 +455,24 @@ export class ChatInterface {
             // Validate security of any code suggestions
             const securityValidation = await this.securityValidator.validateCodeSuggestion(response.content);
 
-            // Prepare enhanced metadata
+            // Calculate confidence and trust indicators
+            const confidence = this.calculateResponseConfidence(response, context, securityValidation);
+            const contextQuality = context.contextConfidence || 0;
+
+            // Prepare enhanced metadata with confidence indicators
             const metadata = {
                 cost: response.cost || 0,
                 tokens: response.tokens || 0,
                 securityWarnings: securityValidation.warnings || [],
                 qualityIssues: context.companionGuardStatus?.issues || [],
+                confidence,
+                contextQuality,
+                compressionApplied: context.compressionApplied || false,
+                trustIndicators: {
+                    dataSource: context.compressionApplied ? 'Compressed Context' : 'Full Context',
+                    processingTime: performance.now() - startTime,
+                    contextSize: JSON.stringify(context).length
+                },
                 dependencyAnalysis,
                 architecturalInsights,
                 debtAnalysis,
@@ -464,12 +491,57 @@ export class ChatInterface {
     }
 
     /**
-     * Get current context for AI
+     * Get enhanced context for AI using Context Compression System
      */
-    private async getCurrentContext(): Promise<ChatContext> {
+    private async getEnhancedContext(userMessage: string): Promise<any> {
+        try {
+            // Use ContextManager to get intelligent, compressed context
+            const enhancedContext = await this.contextManager.getChatContext(userMessage);
+
+            // Add companion guard status for real-time feedback
+            const companionGuardStatus = await this.companionGuard.getStatus();
+
+            return {
+                ...enhancedContext,
+                companionGuardStatus,
+                // Add confidence indicators for trust
+                contextConfidence: this.calculateContextConfidence(enhancedContext),
+                compressionApplied: enhancedContext.compressionApplied || false
+            };
+        } catch (error) {
+            this.contextLogger.error('Enhanced context system failed', error as Error);
+
+            // Show user-friendly error message instead of silent fallback
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showWarningMessage(
+                `Context system error: ${errorMessage}. Using basic context.`,
+                'Debug Context', 'Report Issue'
+            ).then(action => {
+                if (action === 'Debug Context') {
+                    vscode.commands.executeCommand('flowcode.debugContext');
+                } else if (action === 'Report Issue') {
+                    vscode.env.openExternal(vscode.Uri.parse('https://github.com/Aladin147/FlowCode/issues'));
+                }
+            });
+
+            // Still fall back to basic context, but user is now aware
+            const basicContext = await this.getBasicContext();
+            return {
+                ...basicContext,
+                contextError: errorMessage,
+                compressionApplied: false,
+                contextConfidence: 0
+            };
+        }
+    }
+
+    /**
+     * Fallback basic context method
+     */
+    private async getBasicContext(): Promise<ChatContext> {
         const activeEditor = vscode.window.activeTextEditor;
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        
+
         return {
             activeFile: activeEditor?.document.fileName,
             workspaceRoot,
@@ -477,6 +549,53 @@ export class ChatInterface {
             recentFiles: await this.getRecentFiles(),
             companionGuardStatus: await this.companionGuard.getStatus()
         };
+    }
+
+    /**
+     * Calculate context confidence score for trust indicators
+     */
+    private calculateContextConfidence(context: any): number {
+        let confidence = 0;
+
+        // Base confidence from context completeness
+        if (context.activeFile) confidence += 20;
+        if (context.workspaceRoot) confidence += 15;
+        if (context.relevantFiles && context.relevantFiles.length > 0) confidence += 25;
+        if (context.dependencies && context.dependencies.length > 0) confidence += 20;
+        if (context.compressionApplied) confidence += 10; // Bonus for intelligent compression
+
+        // Additional confidence from context quality
+        if (context.semanticContext) confidence += 10;
+
+        return Math.min(confidence, 100); // Cap at 100%
+    }
+
+    /**
+     * Calculate AI response confidence score
+     */
+    private calculateResponseConfidence(response: any, context: any, securityValidation: any): number {
+        let confidence = 70; // Base confidence
+
+        // Boost confidence for good context
+        if (context.contextConfidence > 80) confidence += 15;
+        else if (context.contextConfidence > 60) confidence += 10;
+        else if (context.contextConfidence > 40) confidence += 5;
+
+        // Reduce confidence for security warnings
+        if (securityValidation.warnings && securityValidation.warnings.length > 0) {
+            confidence -= securityValidation.warnings.length * 5;
+        }
+
+        // Boost confidence for comprehensive responses
+        if (response.content && response.content.length > 200) confidence += 5;
+        if (response.tokens && response.tokens > 100) confidence += 5;
+
+        // Reduce confidence for errors or quality issues
+        if (context.companionGuardStatus?.issues?.length > 0) {
+            confidence -= Math.min(context.companionGuardStatus.issues.length * 3, 15);
+        }
+
+        return Math.max(Math.min(confidence, 100), 0); // Clamp between 0-100
     }
 
     /**
@@ -509,7 +628,8 @@ export class ChatInterface {
      */
     private async updateContext(): Promise<void> {
         if (this.panel) {
-            const context = await this.getCurrentContext();
+            // Use basic context for UI updates (enhanced context is expensive)
+            const context = await this.getBasicContext();
             this.panel.webview.postMessage({
                 command: 'updateContext',
                 context
@@ -1747,7 +1867,7 @@ export class ChatInterface {
      * Generate webview HTML content
      */
     private async getWebviewContent(): Promise<string> {
-        const context = await this.getCurrentContext();
+        const context = await this.getBasicContext();
         
         return `<!DOCTYPE html>
 <html lang="en">
@@ -2774,6 +2894,21 @@ export class ChatInterface {
     private renderMessageMetadata(metadata: any): string {
         const parts = [];
 
+        // Add confidence indicators first (most important for trust)
+        if (metadata.confidence !== undefined) {
+            const confidenceColor = metadata.confidence >= 80 ? '#4ade80' :
+                                   metadata.confidence >= 60 ? '#fbbf24' : '#ef4444';
+            parts.push(`<span style="color: ${confidenceColor}">🎯 ${metadata.confidence}% confidence</span>`);
+        }
+
+        if (metadata.contextQuality !== undefined) {
+            parts.push(`📊 ${metadata.contextQuality}% context quality`);
+        }
+
+        if (metadata.compressionApplied) {
+            parts.push(`🗜️ Context compressed`);
+        }
+
         if (metadata.cost) {
             parts.push(`💰 $${metadata.cost.toFixed(4)}`);
         }
@@ -2788,6 +2923,12 @@ export class ChatInterface {
 
         if (metadata.qualityIssues?.length) {
             parts.push(`🔍 ${metadata.qualityIssues.length} quality issues`);
+        }
+
+        // Add trust indicators
+        if (metadata.trustIndicators) {
+            const processingTime = metadata.trustIndicators.processingTime.toFixed(0);
+            parts.push(`⚡ ${processingTime}ms • ${metadata.trustIndicators.dataSource}`);
         }
 
         let metadataHtml = parts.length ? `<div class="message-metadata"><span>${parts.join(' • ')}</span></div>` : '';

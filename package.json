@@ -309,6 +309,12 @@
         "icon": "$(code)"
       },
       {
+        "command": "flowcode.toggleSmartAutocomplete",
+        "title": "Toggle Smart Autocomplete",
+        "category": "FlowCode",
+        "icon": "$(lightbulb)"
+      },
+      {
         "command": "flowcode.analyzeCode",
         "title": "Analyze Code",
         "category": "FlowCode",
@@ -390,6 +396,12 @@
         "title": "Show Settings",
         "category": "FlowCode",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "flowcode.debugContext",
+        "title": "Debug Context System",
+        "category": "FlowCode",
+        "icon": "$(bug)"
       }
     ],
     "statusBarItem": {

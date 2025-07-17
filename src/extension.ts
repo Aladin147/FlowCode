@@ -33,7 +33,11 @@ export async function activate(context: vscode.ExtensionContext) {
             flowCodeExtension.elevateToArchitect()),
         vscode.commands.registerCommand('flowcode.hotfix', () =>
             flowCodeExtension.createHotfix()),
+        vscode.commands.registerCommand('flowcode.createHotfix', () =>
+            flowCodeExtension.createHotfix()),
         vscode.commands.registerCommand('flowcode.showGraph', () =>
+            flowCodeExtension.showCodeGraph()),
+        vscode.commands.registerCommand('flowcode.showDependencyGraph', () =>
             flowCodeExtension.showCodeGraph()),
         vscode.commands.registerCommand('flowcode.configureApiKey', () =>
             flowCodeExtension.configureApiKey()),
@@ -59,6 +63,20 @@ export async function activate(context: vscode.ExtensionContext) {
             flowCodeExtension.generateCode()),
         vscode.commands.registerCommand('flowcode.showChat', () =>
             flowCodeExtension.showChat()),
+        vscode.commands.registerCommand('flowcode.toggleSmartAutocomplete', () =>
+            flowCodeExtension.toggleSmartAutocomplete()),
+
+        // Missing Quick Actions commands
+        vscode.commands.registerCommand('flowcode.analyzeCode', () =>
+            flowCodeExtension.analyzeCode()),
+        vscode.commands.registerCommand('flowcode.openSettings', () =>
+            flowCodeExtension.showSettings()),
+        vscode.commands.registerCommand('flowcode.showQuickActions', () =>
+            flowCodeExtension.showQuickActions()),
+
+        // Debug and diagnostics commands
+        vscode.commands.registerCommand('flowcode.debugContext', () =>
+            flowCodeExtension.debugContextSystem()),
 
         // Force show chat without activation check
         vscode.commands.registerCommand('flowcode.forceShowChat', async () => {
@@ -76,7 +94,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Show settings panel
         vscode.commands.registerCommand('flowcode.showSettings', () =>
-            flowCodeExtension.showSettings())
+            flowCodeExtension.showSettings()),
+
+        // Show workspace selection panel
+        vscode.commands.registerCommand('flowcode.selectWorkspace', () =>
+            flowCodeExtension.showWorkspaceSelection())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

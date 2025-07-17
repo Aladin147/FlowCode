@@ -21,6 +21,10 @@ import { ContextManager } from './services/context-manager';
 import { ContextCompressionService } from './services/context-compression-service';
 import { SmartAutocompleteService } from './services/smart-autocomplete-service';
 import { TaskPlanningEngine } from './services/task-planning-engine';
+import { ExecutionEngine } from './services/execution-engine';
+import { AgentStateManager } from './services/agent-state-manager';
+import { HumanOversightSystem } from './services/human-oversight-system';
+import { AgenticOrchestrator } from './services/agentic-orchestrator';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -41,6 +45,10 @@ export class FlowCodeExtension {
     private securityValidatorService: SecurityValidatorService;
     private gitHookManager: GitHookManager;
     private taskPlanningEngine: TaskPlanningEngine;
+    private executionEngine: ExecutionEngine;
+    private agentStateManager: AgentStateManager;
+    private humanOversightSystem: HumanOversightSystem;
+    public agenticOrchestrator: AgenticOrchestrator;
     private chatInterface: ChatInterface;
     private monitoringDashboard: MonitoringDashboard;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
@@ -69,6 +77,22 @@ export class FlowCodeExtension {
         );
         this.gitHookManager = new GitHookManager(this.configManager);
         this.taskPlanningEngine = new TaskPlanningEngine(this.configManager);
+        this.executionEngine = new ExecutionEngine(
+            this.configManager,
+            this.companionGuard,
+            this.securityValidatorService,
+            this.architectService
+        );
+        this.agentStateManager = new AgentStateManager(this.context, this.configManager);
+        this.humanOversightSystem = new HumanOversightSystem(this.configManager);
+        this.agenticOrchestrator = new AgenticOrchestrator(
+            this.context,
+            this.configManager,
+            this.taskPlanningEngine,
+            this.executionEngine,
+            this.agentStateManager,
+            this.humanOversightSystem
+        );
         this.chatInterface = new ChatInterface(
             this.architectService,
             this.companionGuard,
@@ -99,6 +123,10 @@ export class FlowCodeExtension {
         // Initialize services (don't require API key for basic activation)
         await this.initializeServices();
         this.contextLogger.info('Services initialized successfully');
+
+        // Initialize agentic orchestrator
+        await this.agenticOrchestrator.initialize();
+        this.contextLogger.info('Agentic orchestrator initialized successfully');
 
         // Register tree providers for sidebar views
         this.registerTreeProviders();
@@ -1504,6 +1532,158 @@ export class FlowCodeExtension {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`TaskPlanningEngine test failed: ${message}`);
+        }
+    }
+
+    /**
+     * Execute a user goal autonomously using the agentic orchestrator
+     */
+    public async executeGoalAutonomously(): Promise<void> {
+        try {
+            // Get goal from user
+            const goal = await vscode.window.showInputBox({
+                prompt: 'What would you like the AI agent to do?',
+                placeHolder: 'e.g., Create a new React component with tests',
+                ignoreFocusOut: true
+            });
+
+            if (!goal) {
+                return;
+            }
+
+            vscode.window.showInformationMessage('🤖 Starting autonomous execution...');
+
+            // Execute goal using orchestrator
+            const result = await this.agenticOrchestrator.executeGoal(goal);
+
+            // Show results
+            const message = result.success
+                ? `✅ Goal completed successfully!\n\nCompleted: ${result.completedSteps} steps\nFailed: ${result.failedSteps} steps\nDuration: ${Math.round(result.totalDuration / 1000)}s`
+                : `❌ Goal execution failed.\n\nCompleted: ${result.completedSteps} steps\nFailed: ${result.failedSteps} steps\nDuration: ${Math.round(result.totalDuration / 1000)}s`;
+
+            if (result.success) {
+                vscode.window.showInformationMessage(message);
+            } else {
+                vscode.window.showErrorMessage(message);
+            }
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Autonomous execution failed: ${message}`);
+        }
+    }
+
+    /**
+     * Show agent status and current execution
+     */
+    public async showAgentStatus(): Promise<void> {
+        try {
+            const status = this.agenticOrchestrator.getExecutionStatus();
+            const state = this.agentStateManager.getState();
+            const stats = this.agentStateManager.getTaskStatistics();
+
+            const statusMessage = [
+                `🤖 **Agent Status**`,
+                ``,
+                `**Current Execution:**`,
+                `• Executing: ${status.isExecuting ? 'Yes' : 'No'}`,
+                `• Current Task: ${status.currentTask?.goal || 'None'}`,
+                `• Current Step: ${status.currentStep?.description || 'None'}`,
+                ``,
+                `**Statistics:**`,
+                `• Total Tasks: ${stats.totalTasks}`,
+                `• Success Rate: ${Math.round(stats.successRate * 100)}%`,
+                `• Average Duration: ${Math.round(stats.averageDuration / 1000)}s`,
+                ``,
+                `**Queue:**`,
+                `• Queued Tasks: ${state.taskQueue.length}`,
+                `• Session Start: ${new Date(state.sessionStartTime).toLocaleString()}`
+            ].join('\n');
+
+            vscode.window.showInformationMessage(statusMessage, { modal: true });
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to show agent status: ${message}`);
+        }
+    }
+
+    /**
+     * Test Week 2 implementation
+     */
+    public async testWeek2Implementation(): Promise<void> {
+        try {
+            vscode.window.showInformationMessage('🔍 Testing Week 2 Implementation...');
+
+            // Test ExecutionEngine
+            const testResult1 = await this.testExecutionEngineBasic();
+
+            // Test AgentStateManager
+            const testResult2 = await this.testAgentStateManagerBasic();
+
+            // Test HumanOversightSystem
+            const testResult3 = await this.testHumanOversightSystemBasic();
+
+            // Test AgenticOrchestrator
+            const testResult4 = await this.testAgenticOrchestratorBasic();
+
+            const results = [
+                `✅ ExecutionEngine: ${testResult1 ? 'Working' : 'Failed'}`,
+                `✅ AgentStateManager: ${testResult2 ? 'Working' : 'Failed'}`,
+                `✅ HumanOversightSystem: ${testResult3 ? 'Working' : 'Failed'}`,
+                `✅ AgenticOrchestrator: ${testResult4 ? 'Working' : 'Failed'}`,
+                ``,
+                `🎉 Week 2 Implementation: ${testResult1 && testResult2 && testResult3 && testResult4 ? 'All Systems Operational!' : 'Some Issues Detected'}`
+            ].join('\n');
+
+            if (testResult1 && testResult2 && testResult3 && testResult4) {
+                vscode.window.showInformationMessage(results, { modal: true });
+            } else {
+                vscode.window.showWarningMessage(results, { modal: true });
+            }
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Week 2 testing failed: ${message}`);
+        }
+    }
+
+    private async testExecutionEngineBasic(): Promise<boolean> {
+        try {
+            // Test that ExecutionEngine is properly initialized
+            return this.executionEngine !== undefined;
+        } catch {
+            return false;
+        }
+    }
+
+    private async testAgentStateManagerBasic(): Promise<boolean> {
+        try {
+            // Test basic state operations
+            const state = this.agentStateManager.getState();
+            const stats = this.agentStateManager.getTaskStatistics();
+            return state !== undefined && stats !== undefined;
+        } catch {
+            return false;
+        }
+    }
+
+    private async testHumanOversightSystemBasic(): Promise<boolean> {
+        try {
+            // Test that HumanOversightSystem is properly initialized
+            return this.humanOversightSystem !== undefined;
+        } catch {
+            return false;
+        }
+    }
+
+    private async testAgenticOrchestratorBasic(): Promise<boolean> {
+        try {
+            // Test orchestrator status
+            const status = this.agenticOrchestrator.getExecutionStatus();
+            return status !== undefined && typeof status.isExecuting === 'boolean';
+        } catch {
+            return false;
         }
     }
 

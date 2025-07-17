@@ -102,7 +102,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Test TaskPlanningEngine
         vscode.commands.registerCommand('flowcode.testTaskPlanning', () =>
-            flowCodeExtension.testTaskPlanningEngine())
+            flowCodeExtension.testTaskPlanningEngine()),
+
+        // Test Week 2 Implementation
+        vscode.commands.registerCommand('flowcode.testWeek2', () =>
+            flowCodeExtension.testWeek2Implementation()),
+
+        // Agentic execution commands
+        vscode.commands.registerCommand('flowcode.executeGoal', () =>
+            flowCodeExtension.executeGoalAutonomously()),
+
+        vscode.commands.registerCommand('flowcode.showAgentStatus', () =>
+            flowCodeExtension.showAgentStatus()),
+
+        vscode.commands.registerCommand('flowcode.pauseExecution', () =>
+            flowCodeExtension.agenticOrchestrator?.pauseExecution()),
+
+        vscode.commands.registerCommand('flowcode.cancelExecution', () =>
+            flowCodeExtension.agenticOrchestrator?.cancelExecution())
     ];
     
     commands.forEach(command => context.subscriptions.push(command));

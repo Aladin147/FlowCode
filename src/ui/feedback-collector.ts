@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { logger } from '../utils/logger';
-import { TelemetryService } from '../services/telemetry-service';
 
 export interface FeedbackData {
     type: 'bug' | 'feature' | 'general' | 'performance';
@@ -16,7 +15,7 @@ export class FeedbackCollector {
     private panel: vscode.WebviewPanel | undefined;
     private feedbackData: FeedbackData | undefined;
 
-    constructor(private telemetryService: TelemetryService) {}
+    constructor(private telemetryService?: any) {} // Made optional for V0.2 transition
 
     /**
      * Show feedback form

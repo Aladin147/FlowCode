@@ -8,24 +8,19 @@ import { StatusBarManager } from './ui/status-bar-manager';
 import { ProgressManager } from './ui/progress-manager';
 import { NotificationManager } from './ui/notification-manager';
 import { HelpSystem } from './ui/help-system';
-import { TelemetryService, trackFeature, trackPerformance } from './utils/telemetry';
 import { HealthCheckSystem } from './utils/health-check';
 import { ConfigurationManager } from './utils/configuration-manager';
 import { ToolManager } from './utils/tool-manager';
 import { SecurityValidator } from './utils/security-validator';
 import { SecurityValidatorService } from './services/security-validator';
-import { ArchitectCommands } from './commands/architect-commands';
-import { SecurityCommands } from './commands/security-commands';
 import { GitHookManager } from './services/git-hook-manager';
 import { ChatInterface } from './ui/chat-interface';
 import { MonitoringDashboard } from './ui/monitoring-dashboard';
-import { ChatTreeProvider } from './ui/chat-tree-provider';
-import { StatusTreeProvider } from './ui/status-tree-provider';
-import { SettingsPanel } from './ui/settings-panel';
 import { WorkspaceSelectionPanel } from './ui/workspace-selection-panel';
 import { ContextManager } from './services/context-manager';
 import { ContextCompressionService } from './services/context-compression-service';
 import { SmartAutocompleteService } from './services/smart-autocomplete-service';
+import { TaskPlanningEngine } from './services/task-planning-engine';
 import { logger } from './utils/logger';
 
 export class FlowCodeExtension {
@@ -38,21 +33,16 @@ export class FlowCodeExtension {
     private progressManager: ProgressManager;
     private notificationManager: NotificationManager;
     private helpSystem: HelpSystem;
-    private telemetryService: TelemetryService;
     private healthCheckSystem: HealthCheckSystem;
     private configManager: ConfigurationManager;
     private contextManager: ContextManager;
     private contextCompressionService: ContextCompressionService;
     private smartAutocompleteService: SmartAutocompleteService;
     private securityValidatorService: SecurityValidatorService;
-    private architectCommands: ArchitectCommands;
-    private securityCommands: SecurityCommands;
     private gitHookManager: GitHookManager;
+    private taskPlanningEngine: TaskPlanningEngine;
     private chatInterface: ChatInterface;
     private monitoringDashboard: MonitoringDashboard;
-    private chatTreeProvider: ChatTreeProvider;
-    private statusTreeProvider: StatusTreeProvider;
-    private settingsPanel: SettingsPanel;
     private contextLogger = logger.createContextLogger('FlowCodeExtension');
     private _isActive: boolean = false;
 
@@ -62,7 +52,6 @@ export class FlowCodeExtension {
         this.progressManager = new ProgressManager();
         this.notificationManager = NotificationManager.getInstance();
         this.helpSystem = HelpSystem.getInstance();
-        this.telemetryService = TelemetryService.getInstance();
         this.healthCheckSystem = HealthCheckSystem.getInstance();
         this.companionGuard = new CompanionGuard(this.configManager);
         this.finalGuard = new FinalGuard(this.configManager);
@@ -78,9 +67,8 @@ export class FlowCodeExtension {
             this.architectService,
             this.companionGuard
         );
-        this.architectCommands = new ArchitectCommands(this.configManager);
-        this.securityCommands = new SecurityCommands(this.configManager, this.securityValidatorService);
         this.gitHookManager = new GitHookManager(this.configManager);
+        this.taskPlanningEngine = new TaskPlanningEngine(this.configManager);
         this.chatInterface = new ChatInterface(
             this.architectService,
             this.companionGuard,
@@ -93,17 +81,12 @@ export class FlowCodeExtension {
         );
 
         this.monitoringDashboard = new MonitoringDashboard(
-            this.telemetryService,
+            undefined, // No telemetry service for now
             this.companionGuard,
             this.hotfixService,
             this.graphService,
             this.chatInterface
         );
-
-        // Initialize tree providers for sidebar
-        this.chatTreeProvider = new ChatTreeProvider();
-        this.statusTreeProvider = new StatusTreeProvider(this.configManager);
-        this.settingsPanel = SettingsPanel.getInstance(this.configManager);
     }
 
     public async activate(): Promise<void> {
@@ -166,12 +149,20 @@ export class FlowCodeExtension {
         }
     }
 
-    @trackFeature('architect', 'elevate')
-    @trackPerformance('elevateToArchitect')
     public async elevateToArchitect(): Promise<void> {
         try {
             this.statusBarManager.showRunning('Architect Refactor');
-            await this.architectCommands.elevateToArchitect();
+
+            // Use new agentic approach
+            const task = await this.taskPlanningEngine.decomposeGoal(
+                'Perform architectural refactoring of the current code'
+            );
+
+            // For now, show the task plan to user
+            vscode.window.showInformationMessage(
+                `Architect task planned with ${task.steps.length} steps. Agentic execution coming soon!`
+            );
+
             this.statusBarManager.showReady();
         } catch (error) {
             this.statusBarManager.showError('Architect failed');
@@ -190,12 +181,20 @@ export class FlowCodeExtension {
         }
     }
 
-    @trackFeature('architect', 'generate')
-    @trackPerformance('generateCode')
     public async generateCode(): Promise<void> {
         try {
             this.statusBarManager.showRunning('Code Generation');
-            await this.architectCommands.generateCode();
+
+            // Use new agentic approach
+            const task = await this.taskPlanningEngine.decomposeGoal(
+                'Generate code based on current context and requirements'
+            );
+
+            // For now, show the task plan to user
+            vscode.window.showInformationMessage(
+                `Code generation task planned with ${task.steps.length} steps. Agentic execution coming soon!`
+            );
+
             this.statusBarManager.showReady();
         } catch (error) {
             this.statusBarManager.showError('Code generation failed');
@@ -214,8 +213,6 @@ export class FlowCodeExtension {
         }
     }
 
-    @trackFeature('hotfix', 'create')
-    @trackPerformance('createHotfix')
     public async createHotfix(): Promise<void> {
         const message = await this.notificationManager.showInput(
             'Enter hotfix commit message',
@@ -476,25 +473,14 @@ export class FlowCodeExtension {
         await this.graphService.initialize();
         await this.hotfixService.initialize();
         await this.securityValidatorService.initialize();
-        await this.architectCommands.initialize();
-        await this.securityCommands.initialize();
+        // Command services removed in V0.2 agentic pivot
         // Note: GitHookManager doesn't need initialization, it's ready to use
     }
 
     private registerTreeProviders(): void {
-        // Register chat tree provider
-        vscode.window.createTreeView('flowcode-chat', {
-            treeDataProvider: this.chatTreeProvider,
-            showCollapseAll: true
-        });
-
-        // Register status tree provider
-        vscode.window.createTreeView('flowcode-status', {
-            treeDataProvider: this.statusTreeProvider,
-            showCollapseAll: false
-        });
-
-        this.contextLogger.info('Tree providers registered for sidebar views');
+        // Tree providers removed in V0.2 agentic pivot
+        // Will be replaced with conversational agent interface
+        this.contextLogger.info('Tree providers skipped - using agentic interface');
     }
 
     private registerLanguageProviders(): void {
@@ -771,7 +757,14 @@ export class FlowCodeExtension {
 
     public async runSecurityAudit(): Promise<void> {
         try {
-            await this.securityCommands.runSecurityAudit();
+            // Use new agentic approach
+            const task = await this.taskPlanningEngine.decomposeGoal(
+                'Perform comprehensive security audit of the codebase'
+            );
+
+            vscode.window.showInformationMessage(
+                `Security audit task planned with ${task.steps.length} steps. Agentic execution coming soon!`
+            );
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Security audit failed: ${message}`);
@@ -810,8 +803,9 @@ export class FlowCodeExtension {
 
     public async showSettings(): Promise<void> {
         try {
-            await this.settingsPanel.show();
-            this.contextLogger.info('Settings panel opened');
+            // Open VS Code settings for FlowCode
+            vscode.commands.executeCommand('workbench.action.openSettings', 'flowcode');
+            this.contextLogger.info('Settings opened');
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to open settings: ${message}`);
@@ -1087,7 +1081,7 @@ export class FlowCodeExtension {
 
             panel.webview.html = this.generateHealthStatusHtml(health, report);
 
-            this.telemetryService.trackUserAction('show_health_status', 'command');
+            // Telemetry removed in V0.2 agentic pivot
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             await this.notificationManager.showError(
@@ -1135,7 +1129,7 @@ export class FlowCodeExtension {
                 }
             }
 
-            this.telemetryService.trackUserAction('run_health_check', 'command', { checkName });
+            // Telemetry removed in V0.2 agentic pivot
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             await this.notificationManager.showError(
@@ -1161,8 +1155,6 @@ export class FlowCodeExtension {
      * Manually run the companion guard
      * Executes linting and code quality checks on the current workspace
      */
-    @trackFeature('companion-guard', 'manual-run')
-    @trackPerformance('runCompanionGuard')
     public async runCompanionGuard(): Promise<void> {
         try {
             if (!this._isActive) {
@@ -1200,8 +1192,6 @@ export class FlowCodeExtension {
      * Initialize the final guard system
      * Sets up pre-commit hooks and final validation
      */
-    @trackFeature('final-guard', 'initialize')
-    @trackPerformance('initializeFinalGuard')
     public async initializeFinalGuard(): Promise<void> {
         try {
             if (!this._isActive) {
@@ -1241,7 +1231,6 @@ export class FlowCodeExtension {
     /**
      * Show AI chat interface
      */
-    @trackFeature('chat', 'show')
     public async showChat(): Promise<void> {
         if (!this._isActive) {
             vscode.window.showWarningMessage('FlowCode is not active. Please activate it first.');
@@ -1273,8 +1262,6 @@ export class FlowCodeExtension {
      * Refactor code using AI-powered analysis
      * Analyzes selected code or current file and suggests improvements
      */
-    @trackFeature('architect', 'refactor')
-    @trackPerformance('refactorCode')
     public async refactorCode(): Promise<void> {
         try {
             if (!this._isActive) {
@@ -1291,7 +1278,14 @@ export class FlowCodeExtension {
             this.contextLogger.info('Starting code refactoring');
 
             // Use architect service for refactoring
-            await this.architectCommands.elevateToArchitect();
+            // Use new agentic approach
+            const task = await this.taskPlanningEngine.decomposeGoal(
+                'Refactor the selected code or current file'
+            );
+
+            vscode.window.showInformationMessage(
+                `Refactoring task planned with ${task.steps.length} steps. Agentic execution coming soon!`
+            );
 
             this.statusBarManager.showReady();
             vscode.window.showInformationMessage('Code refactoring completed successfully!');
@@ -1317,7 +1311,6 @@ export class FlowCodeExtension {
     /**
      * Toggle smart autocomplete feature
      */
-    @trackFeature('autocomplete', 'toggle')
     public async toggleSmartAutocomplete(): Promise<void> {
         try {
             if (!this._isActive) {
@@ -1348,7 +1341,6 @@ export class FlowCodeExtension {
     /**
      * Analyze current code
      */
-    @trackFeature('analysis', 'analyze-code')
     public async analyzeCode(): Promise<void> {
         try {
             if (!this._isActive) {
@@ -1402,7 +1394,6 @@ export class FlowCodeExtension {
     /**
      * Show Quick Actions menu
      */
-    @trackFeature('ui', 'quick-actions')
     public async showQuickActions(): Promise<void> {
         try {
             const actions = [
@@ -1462,7 +1453,6 @@ export class FlowCodeExtension {
     /**
      * Debug context system to identify issues
      */
-    @trackFeature('debug', 'context-diagnostics')
     public async debugContextSystem(): Promise<void> {
         try {
             this.contextLogger.info('Running context system diagnostics...');

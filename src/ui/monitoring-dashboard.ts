@@ -15,7 +15,7 @@ export class MonitoringDashboard {
     private readonly UPDATE_INTERVAL_MS = 5000; // 5 seconds
 
     constructor(
-        private telemetryService: TelemetryService,
+        private telemetryService?: any, // Made optional for V0.2 transition
         private companionGuard?: CompanionGuard,
         private hotfixService?: HotfixService,
         private graphService?: GraphService,

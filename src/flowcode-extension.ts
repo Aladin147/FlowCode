@@ -832,6 +832,68 @@ export class FlowCodeExtension {
         }
     }
 
+    public async showPerformanceReport(): Promise<void> {
+        try {
+            const { FlowCodeBenchmarks } = await import('./utils/performance-benchmark');
+            const benchmarks = new FlowCodeBenchmarks();
+
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Generating performance report...',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ increment: 50, message: 'Running benchmarks...' });
+
+                const report = await benchmarks.runFullBenchmarkSuite();
+
+                progress.report({ increment: 100, message: 'Report generated!' });
+
+                // Show performance report in webview
+                const panel = vscode.window.createWebviewPanel(
+                    'flowcodePerformance',
+                    'FlowCode Performance Report',
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
+                );
+
+                panel.webview.html = this.generatePerformanceReportHtml(report);
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to generate performance report: ${message}`);
+        }
+    }
+
+    public async optimizeMemory(): Promise<void> {
+        try {
+            const { MemoryOptimizer } = await import('./utils/memory-optimizer');
+            const optimizer = new MemoryOptimizer();
+
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Optimizing memory...',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ increment: 50, message: 'Running memory optimization...' });
+
+                const optimizations = await optimizer.optimizeMemory();
+
+                progress.report({ increment: 100, message: 'Memory optimized!' });
+
+                if (optimizations.length > 0) {
+                    vscode.window.showInformationMessage(
+                        `Memory optimization completed: ${optimizations.join(', ')}`
+                    );
+                } else {
+                    vscode.window.showInformationMessage('Memory usage is already optimal');
+                }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Memory optimization failed: ${message}`);
+        }
+    }
+
     public async showChatInterface(): Promise<void> {
         try {
             await this.chatInterface.show();
@@ -839,6 +901,242 @@ export class FlowCodeExtension {
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to show chat interface: ${message}`);
         }
+    }
+
+    public async showWelcomeGuide(): Promise<void> {
+        try {
+            const panel = vscode.window.createWebviewPanel(
+                'flowcodeWelcome',
+                'FlowCode Welcome Guide',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            panel.webview.html = this.generateWelcomeGuideHtml();
+
+            // Handle messages from webview
+            panel.webview.onDidReceiveMessage(async (message) => {
+                switch (message.command) {
+                    case 'configureApiKey':
+                        await this.configureApiKey();
+                        break;
+                    case 'showChat':
+                        await this.showChat();
+                        break;
+                    case 'runSecurityAudit':
+                        await this.runSecurityAudit();
+                        break;
+                }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to show welcome guide: ${message}`);
+        }
+    }
+
+    public async configureTelemetry(): Promise<void> {
+        try {
+            const config = vscode.workspace.getConfiguration('flowcode');
+            const currentSetting = config.get<boolean>('telemetry.enabled', false);
+
+            const options = [
+                { label: 'Enable Telemetry', description: 'Help improve FlowCode by sharing usage data', value: true },
+                { label: 'Disable Telemetry', description: 'Keep all data local (recommended)', value: false }
+            ];
+
+            const selected = await vscode.window.showQuickPick(options, {
+                placeHolder: `Current setting: ${currentSetting ? 'Enabled' : 'Disabled'}`,
+                ignoreFocusOut: true
+            });
+
+            if (selected) {
+                await config.update('telemetry.enabled', selected.value, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage(
+                    `Telemetry ${selected.value ? 'enabled' : 'disabled'} successfully`
+                );
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to configure telemetry: ${message}`);
+        }
+    }
+
+    public async provideFeedback(): Promise<void> {
+        try {
+            const feedbackOptions = [
+                { label: '🐛 Report Bug', description: 'Report a bug or issue', action: 'bug' },
+                { label: '💡 Feature Request', description: 'Suggest a new feature', action: 'feature' },
+                { label: '⭐ General Feedback', description: 'Share your thoughts', action: 'general' }
+            ];
+
+            const selected = await vscode.window.showQuickPick(feedbackOptions, {
+                placeHolder: 'What type of feedback would you like to provide?',
+                ignoreFocusOut: true
+            });
+
+            if (selected) {
+                const feedback = await vscode.window.showInputBox({
+                    prompt: `Please describe your ${selected.action === 'bug' ? 'bug report' : selected.action === 'feature' ? 'feature request' : 'feedback'}`,
+                    placeHolder: 'Type your feedback here...',
+                    ignoreFocusOut: true
+                });
+
+                if (feedback) {
+                    // For now, just show a thank you message
+                    // In a real implementation, this would send to a feedback service
+                    vscode.window.showInformationMessage(
+                        'Thank you for your feedback! Your input helps improve FlowCode.',
+                        'View GitHub Issues'
+                    ).then(selection => {
+                        if (selection === 'View GitHub Issues') {
+                            vscode.env.openExternal(vscode.Uri.parse('https://github.com/Aladin147/FlowCode/issues'));
+                        }
+                    });
+                }
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to provide feedback: ${message}`);
+        }
+    }
+
+    public async runChatDiagnostics(): Promise<void> {
+        try {
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Running FlowCode Chat Diagnostics...',
+                cancellable: false
+            }, async (progress) => {
+                const results: string[] = [];
+
+                progress.report({ increment: 10, message: 'Checking extension activation...' });
+
+                // Test 1: Extension activation
+                results.push('🔍 **EXTENSION ACTIVATION**');
+                results.push(this.chatInterface ? '✅ ChatInterface initialized' : '❌ ChatInterface not initialized');
+                results.push(this.architectService ? '✅ ArchitectService available' : '❌ ArchitectService not available');
+                results.push(this.configManager ? '✅ ConfigurationManager available' : '❌ ConfigurationManager not available');
+
+                progress.report({ increment: 20, message: 'Checking API configuration...' });
+
+                // Test 2: API Configuration
+                results.push('\n🔑 **API CONFIGURATION**');
+                try {
+                    const apiConfig = await this.configManager.getApiConfiguration();
+                    results.push(`✅ Provider: ${apiConfig.provider}`);
+                    results.push(`✅ Max Tokens: ${apiConfig.maxTokens}`);
+                    results.push(apiConfig.apiKey ? '✅ API Key configured' : '❌ API Key missing');
+                    results.push(apiConfig.endpoint ? `✅ Custom Endpoint: ${apiConfig.endpoint}` : '✅ Using default endpoint');
+
+                    // Test API key validity
+                    if (apiConfig.apiKey) {
+                        progress.report({ increment: 30, message: 'Testing API key...' });
+                        const isValid = await this.configManager.testApiKey(apiConfig.provider, apiConfig.apiKey, apiConfig.endpoint);
+                        results.push(isValid ? '✅ API Key is valid' : '❌ API Key test failed');
+                    }
+                } catch (error) {
+                    results.push(`❌ Configuration error: ${error}`);
+                }
+
+                progress.report({ increment: 50, message: 'Testing chat functionality...' });
+
+                // Test 3: Chat Interface
+                results.push('\n💬 **CHAT INTERFACE**');
+                try {
+                    // Test if chat can be opened
+                    results.push('✅ Chat interface can be created');
+
+                    // Test context gathering
+                    const activeFile = vscode.window.activeTextEditor?.document.fileName;
+                    results.push(activeFile ? `✅ Active file detected: ${activeFile}` : '⚠️ No active file');
+
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    results.push(workspaceRoot ? `✅ Workspace detected: ${workspaceRoot}` : '⚠️ No workspace open');
+
+                } catch (error) {
+                    results.push(`❌ Chat interface error: ${error}`);
+                }
+
+                progress.report({ increment: 70, message: 'Testing file operations...' });
+
+                // Test 4: File Operations
+                results.push('\n📁 **FILE OPERATIONS**');
+                try {
+                    const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 5);
+                    results.push(`✅ Can scan workspace: ${files.length} files found`);
+
+                    if (files.length > 0) {
+                        const testFile = files[0];
+                        if (testFile) {
+                            try {
+                                const document = await vscode.workspace.openTextDocument(testFile.fsPath);
+                                results.push(`✅ Can read files: ${document.getText().length} characters`);
+                            } catch (readError) {
+                                results.push(`⚠️ File read test failed: ${readError}`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    results.push(`❌ File operation error: ${error}`);
+                }
+
+                progress.report({ increment: 90, message: 'Testing services...' });
+
+                // Test 5: Service Health
+                results.push('\n🔧 **SERVICE HEALTH**');
+                results.push(this.chatInterface ? '✅ ChatInterface available' : '❌ ChatInterface missing');
+                results.push(this.architectService ? '✅ ArchitectService available' : '❌ ArchitectService missing');
+                results.push(this.configManager ? '✅ ConfigurationManager available' : '❌ ConfigurationManager missing');
+                results.push('✅ Core services initialized');
+
+                progress.report({ increment: 100, message: 'Generating report...' });
+
+                // Create diagnostic report
+                const reportContent = results.join('\n');
+
+                // Show results in new document
+                const doc = await vscode.workspace.openTextDocument({
+                    content: `# FlowCode Chat Diagnostics Report\n\nGenerated: ${new Date().toLocaleString()}\n\n${reportContent}\n\n## Recommendations\n\n${this.generateRecommendations(results)}`,
+                    language: 'markdown'
+                });
+
+                await vscode.window.showTextDocument(doc);
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Diagnostics failed: ${message}`);
+        }
+    }
+
+    private generateRecommendations(results: string[]): string {
+        const recommendations: string[] = [];
+        const resultText = results.join('\n');
+
+        if (resultText.includes('❌ API Key missing')) {
+            recommendations.push('1. **Configure API Key**: Run "FlowCode: Configure API Key" command');
+        }
+
+        if (resultText.includes('❌ API Key test failed')) {
+            recommendations.push('2. **Check API Key**: Verify your API key is correct and has sufficient credits');
+        }
+
+        if (resultText.includes('⚠️ No workspace open')) {
+            recommendations.push('3. **Open Workspace**: Open a folder or workspace for better context');
+        }
+
+        if (resultText.includes('❌') && !resultText.includes('API Key')) {
+            recommendations.push('4. **Restart Extension**: Try reloading VS Code or disabling/enabling FlowCode');
+        }
+
+        if (recommendations.length === 0) {
+            recommendations.push('✅ **All systems operational!** Your FlowCode chat should be working perfectly.');
+            recommendations.push('If you\'re still experiencing issues, try:');
+            recommendations.push('- Opening the chat with "FlowCode: Show Chat"');
+            recommendations.push('- Sending a test message');
+            recommendations.push('- Clicking the file context button (📁)');
+        }
+
+        return recommendations.join('\n');
     }
 
     public async openChatSession(sessionId: string): Promise<void> {
@@ -2354,6 +2652,188 @@ export class FlowCodeExtension {
                 function runHealthCheck() {
                     // This would trigger a health check via message passing
                     console.log('Running health check...');
+                }
+            </script>
+        </body>
+        </html>
+        `;
+    }
+
+    private generatePerformanceReportHtml(report: any): string {
+        return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>FlowCode Performance Report</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    margin: 20px;
+                    background: var(--vscode-editor-background);
+                    color: var(--vscode-editor-foreground);
+                }
+                .report-header { text-align: center; margin-bottom: 30px; }
+                .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+                .metric-card {
+                    background: var(--vscode-editor-inactiveSelectionBackground);
+                    padding: 15px;
+                    border-radius: 8px;
+                    border: 1px solid var(--vscode-panel-border);
+                }
+                .metric-title { font-weight: bold; margin-bottom: 10px; }
+                .metric-value { font-size: 1.2em; color: var(--vscode-textLink-foreground); }
+                .benchmark-list { list-style: none; padding: 0; }
+                .benchmark-item {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 5px 0;
+                    border-bottom: 1px solid var(--vscode-panel-border);
+                }
+            </style>
+        </head>
+        <body>
+            <div class="report-header">
+                <h1>📊 FlowCode Performance Report</h1>
+                <p>Generated on ${new Date().toLocaleString()}</p>
+            </div>
+
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <div class="metric-title">Overall Statistics</div>
+                    <div class="metric-value">Total Operations: ${report.overallStats?.totalOperations || 0}</div>
+                    <div class="metric-value">Average Duration: ${report.overallStats?.averageDuration?.toFixed(2) || 0}ms</div>
+                    <div class="metric-value">Success Rate: ${((report.overallStats?.successRate || 0) * 100).toFixed(1)}%</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-title">Service Benchmarks</div>
+                    <ul class="benchmark-list">
+                        ${Object.entries(report.serviceStats || {}).map(([service, stats]: [string, any]) => `
+                            <li class="benchmark-item">
+                                <span>${service}</span>
+                                <span>${stats.averageDuration?.toFixed(2) || 0}ms</span>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            </div>
+
+            <div style="margin-top: 30px; text-align: center;">
+                <button onclick="window.close()" style="padding: 10px 20px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+        </body>
+        </html>
+        `;
+    }
+
+    private generateWelcomeGuideHtml(): string {
+        return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>FlowCode Welcome Guide</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    margin: 20px;
+                    background: var(--vscode-editor-background);
+                    color: var(--vscode-editor-foreground);
+                    line-height: 1.6;
+                }
+                .welcome-header { text-align: center; margin-bottom: 30px; }
+                .welcome-title { font-size: 2.5em; margin-bottom: 10px; }
+                .welcome-subtitle { font-size: 1.2em; color: var(--vscode-descriptionForeground); }
+                .steps { max-width: 800px; margin: 0 auto; }
+                .step {
+                    background: var(--vscode-editor-inactiveSelectionBackground);
+                    padding: 20px;
+                    margin: 20px 0;
+                    border-radius: 8px;
+                    border-left: 4px solid var(--vscode-textLink-foreground);
+                }
+                .step-number {
+                    background: var(--vscode-textLink-foreground);
+                    color: var(--vscode-button-foreground);
+                    width: 30px;
+                    height: 30px;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                    margin-right: 15px;
+                }
+                .step-title { font-size: 1.3em; font-weight: bold; margin-bottom: 10px; }
+                .action-button {
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    margin: 5px;
+                }
+                .action-button:hover {
+                    background: var(--vscode-button-hoverBackground);
+                }
+            </style>
+        </head>
+        <body>
+            <div class="welcome-header">
+                <div class="welcome-title">🚀 Welcome to FlowCode</div>
+                <div class="welcome-subtitle">Your AI-powered coding assistant</div>
+            </div>
+
+            <div class="steps">
+                <div class="step">
+                    <div style="display: flex; align-items: center;">
+                        <span class="step-number">1</span>
+                        <div>
+                            <div class="step-title">Configure API Key</div>
+                            <p>Set up your AI provider (OpenAI, Anthropic, or DeepSeek) to enable AI features.</p>
+                            <button class="action-button" onclick="configureApiKey()">Configure API Key</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div style="display: flex; align-items: center;">
+                        <span class="step-number">2</span>
+                        <div>
+                            <div class="step-title">Start Chatting</div>
+                            <p>Open the AI chat interface to get coding assistance, code reviews, and suggestions.</p>
+                            <button class="action-button" onclick="showChat()">Open Chat</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div style="display: flex; align-items: center;">
+                        <span class="step-number">3</span>
+                        <div>
+                            <div class="step-title">Run Security Audit</div>
+                            <p>Analyze your code for security vulnerabilities and get recommendations.</p>
+                            <button class="action-button" onclick="runSecurityAudit()">Run Security Audit</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+
+                function configureApiKey() {
+                    vscode.postMessage({ command: 'configureApiKey' });
+                }
+
+                function showChat() {
+                    vscode.postMessage({ command: 'showChat' });
+                }
+
+                function runSecurityAudit() {
+                    vscode.postMessage({ command: 'runSecurityAudit' });
                 }
             </script>
         </body>

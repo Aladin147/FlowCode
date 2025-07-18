@@ -62,6 +62,152 @@ export class ExecutionEngine {
     }
 
     /**
+     * Resolve file path to absolute path, handling workspace context
+     */
+    private resolveFilePath(filePath: string): string {
+        // Handle absolute paths
+        if (path.isAbsolute(filePath)) {
+            return filePath;
+        }
+
+        // Resolve relative to workspace
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceRoot) {
+            return path.resolve(workspaceRoot, filePath);
+        }
+
+        // Fallback to current working directory
+        return path.resolve(process.cwd(), filePath);
+    }
+
+    /**
+     * Handle missing file with user-friendly options
+     */
+    private async handleMissingFile(filePath: string, action: AgentAction): Promise<StepResult> {
+        const fileName = path.basename(filePath);
+        const relativePath = this.getRelativePath(filePath);
+
+        this.contextLogger.warn(`File not found: ${filePath} for action: ${action.type}`);
+
+        const choice = await vscode.window.showWarningMessage(
+            `File not found: ${relativePath}`,
+            'Create File',
+            'Select Different File',
+            'Skip Step'
+        );
+
+        switch (choice) {
+            case 'Create File':
+                return this.createMissingFile(filePath, action);
+            case 'Select Different File':
+                return this.promptForFile(action);
+            case 'Skip Step':
+                return this.skipStep(action, `File not found: ${relativePath}`);
+            default:
+                throw new Error(`File not found: ${filePath}`);
+        }
+    }
+
+    /**
+     * Get relative path for display purposes
+     */
+    private getRelativePath(filePath: string): string {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceRoot && filePath.startsWith(workspaceRoot)) {
+            return path.relative(workspaceRoot, filePath);
+        }
+        return filePath;
+    }
+
+    /**
+     * Create missing file with basic content
+     */
+    private async createMissingFile(filePath: string, action: AgentAction): Promise<StepResult> {
+        try {
+            // Ensure directory exists
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
+            // Create file with basic content based on extension
+            const ext = path.extname(filePath);
+            let content = '';
+
+            switch (ext) {
+                case '.ts':
+                case '.js':
+                    content = '// Created by FlowCode\n\n';
+                    break;
+                case '.json':
+                    content = '{\n  \n}\n';
+                    break;
+                case '.md':
+                    content = `# ${path.basename(filePath, ext)}\n\n`;
+                    break;
+                default:
+                    content = '';
+            }
+
+            fs.writeFileSync(filePath, content, 'utf8');
+
+            const change: FileChange = {
+                path: filePath,
+                type: 'create',
+                content
+            };
+
+            return {
+                success: true,
+                output: `Created file: ${this.getRelativePath(filePath)}`,
+                changes: [change],
+                nextSteps: ['Edit the created file as needed']
+            };
+
+        } catch (error) {
+            this.contextLogger.error('Failed to create file', error as Error, { filePath });
+            throw new Error(`Failed to create file: ${filePath} - ${(error as Error).message}`);
+        }
+    }
+
+    /**
+     * Prompt user to select a different file
+     */
+    private async promptForFile(action: AgentAction): Promise<StepResult> {
+        const fileUri = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: 'Select File'
+        });
+
+        if (fileUri && fileUri[0]) {
+            // Update action with new file path
+            action.target = fileUri[0].fsPath;
+
+            return {
+                success: true,
+                output: `Selected file: ${this.getRelativePath(fileUri[0].fsPath)}`,
+                nextSteps: ['Proceeding with selected file']
+            };
+        } else {
+            return this.skipStep(action, 'No file selected');
+        }
+    }
+
+    /**
+     * Skip step with appropriate messaging
+     */
+    private skipStep(action: AgentAction, reason: string): StepResult {
+        return {
+            success: false,
+            output: `Step skipped: ${reason}`,
+            warnings: [`Skipped ${action.type} action: ${reason}`],
+            nextSteps: ['Consider resolving the issue and retrying']
+        };
+    }
+
+    /**
      * Execute a single task step
      */
     public async executeStep(step: TaskStep, context: ExecutionContext): Promise<StepResult> {
@@ -206,17 +352,17 @@ export class ExecutionEngine {
      * Analyze code action implementation
      */
     private async executeAnalyzeCode(action: AgentAction, context: ExecutionContext): Promise<StepResult> {
-        const filePath = action.target;
-        
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
+        const resolvedPath = this.resolveFilePath(action.target);
+
+        if (!fs.existsSync(resolvedPath)) {
+            return this.handleMissingFile(resolvedPath, action);
         }
 
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = fs.readFileSync(resolvedPath, 'utf8');
         const analysis = {
             fileSize: content.length,
             lineCount: content.split('\n').length,
-            language: path.extname(filePath).substring(1),
+            language: path.extname(resolvedPath).substring(1),
             complexity: this.calculateComplexity(content),
             issues: this.findCodeIssues(content)
         };
@@ -232,32 +378,36 @@ export class ExecutionEngine {
      * Create file action implementation
      */
     private async executeCreateFile(action: AgentAction, context: ExecutionContext): Promise<StepResult> {
-        const filePath = action.target;
+        const resolvedPath = this.resolveFilePath(action.target);
         const content = action.payload.content || '';
-        
+
         // Check if file already exists
-        if (fs.existsSync(filePath)) {
-            throw new Error(`File already exists: ${filePath}`);
+        if (fs.existsSync(resolvedPath)) {
+            return {
+                success: false,
+                output: `File already exists: ${this.getRelativePath(resolvedPath)}`,
+                warnings: ['File creation skipped - file already exists']
+            };
         }
 
         // Ensure directory exists
-        const dir = path.dirname(filePath);
+        const dir = path.dirname(resolvedPath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
 
         // Create file
-        fs.writeFileSync(filePath, content, 'utf8');
+        fs.writeFileSync(resolvedPath, content, 'utf8');
 
         const change: FileChange = {
-            path: filePath,
+            path: resolvedPath,
             type: 'create',
             content
         };
 
         return {
             success: true,
-            output: `File created: ${filePath}`,
+            output: `File created: ${this.getRelativePath(resolvedPath)}`,
             changes: [change],
             nextSteps: ['Review created file', 'Add to version control if needed']
         };
@@ -267,21 +417,21 @@ export class ExecutionEngine {
      * Edit file action implementation
      */
     private async executeEditFile(action: AgentAction, context: ExecutionContext): Promise<StepResult> {
-        const filePath = action.target;
-        
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
+        const resolvedPath = this.resolveFilePath(action.target);
+
+        if (!fs.existsSync(resolvedPath)) {
+            return this.handleMissingFile(resolvedPath, action);
         }
 
         // Backup original content
-        const originalContent = fs.readFileSync(filePath, 'utf8');
+        const originalContent = fs.readFileSync(resolvedPath, 'utf8');
         const newContent = action.payload.content;
 
         // Apply changes
-        fs.writeFileSync(filePath, newContent, 'utf8');
+        fs.writeFileSync(resolvedPath, newContent, 'utf8');
 
         const change: FileChange = {
-            path: filePath,
+            path: resolvedPath,
             type: 'modify',
             content: newContent,
             backup: originalContent,
@@ -290,7 +440,7 @@ export class ExecutionEngine {
 
         return {
             success: true,
-            output: `File edited: ${filePath}`,
+            output: `File edited: ${this.getRelativePath(resolvedPath)}`,
             changes: [change],
             nextSteps: ['Review changes', 'Test modifications']
         };
@@ -300,27 +450,27 @@ export class ExecutionEngine {
      * Delete file action implementation
      */
     private async executeDeleteFile(action: AgentAction, context: ExecutionContext): Promise<StepResult> {
-        const filePath = action.target;
-        
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
+        const resolvedPath = this.resolveFilePath(action.target);
+
+        if (!fs.existsSync(resolvedPath)) {
+            return this.skipStep(action, `File already deleted or not found: ${this.getRelativePath(resolvedPath)}`);
         }
 
         // Backup content before deletion
-        const content = fs.readFileSync(filePath, 'utf8');
-        
+        const content = fs.readFileSync(resolvedPath, 'utf8');
+
         // Delete file
-        fs.unlinkSync(filePath);
+        fs.unlinkSync(resolvedPath);
 
         const change: FileChange = {
-            path: filePath,
+            path: resolvedPath,
             type: 'delete',
             backup: content
         };
 
         return {
             success: true,
-            output: `File deleted: ${filePath}`,
+            output: `File deleted: ${this.getRelativePath(resolvedPath)}`,
             changes: [change],
             warnings: ['File has been permanently deleted'],
             nextSteps: ['Verify deletion was intended', 'Update references if needed']

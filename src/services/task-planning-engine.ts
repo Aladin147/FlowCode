@@ -360,10 +360,35 @@ export class TaskPlanningEngine {
             requiredActions.push('analyze_code');
         }
 
+        // Calculate basic complexity without calling estimateComplexity to avoid recursion
+        let complexityLevel: 'trivial' | 'simple' | 'moderate' | 'complex' | 'expert' = 'simple';
+        let estimatedTime = 15; // minutes
+        const factors: string[] = [];
+
+        if (scope === 'architecture' || requiredActions.length > 3 || risks.length > 2) {
+            complexityLevel = 'complex';
+            estimatedTime = 120;
+            factors.push('High complexity due to scope or risk factors');
+        } else if (scope === 'project' || requiredActions.length > 1 || risks.length > 0) {
+            complexityLevel = 'moderate';
+            estimatedTime = 45;
+            factors.push('Moderate complexity due to scope or multiple actions');
+        } else {
+            factors.push('Simple single-file operation');
+        }
+
+        const basicComplexity: ComplexityEstimate = {
+            level: complexityLevel,
+            factors,
+            estimatedTime,
+            confidence: 0.7, // Basic analysis has moderate confidence
+            recommendations: ['Consider using detailed analysis for better estimates']
+        };
+
         return {
             intent: goal,
             scope,
-            complexity: await this.estimateComplexity(goal),
+            complexity: basicComplexity,
             requiredActions,
             dependencies,
             risks

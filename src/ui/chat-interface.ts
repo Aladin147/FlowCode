@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import fetch from 'node-fetch';
 import { logger } from '../utils/logger';
 import { ArchitectService } from '../services/architect-service';
 import { CompanionGuard } from '../services/companion-guard';
@@ -850,18 +851,89 @@ export class ChatInterface {
                 throw new Error('URL must start with http:// or https://');
             }
 
-            const contextMessage: ChatMessage = {
-                id: this.generateMessageId(),
-                type: 'system',
-                content: `🌐 URL context added: ${url}\n\n(Note: URL fetching not implemented in this version. Please copy and paste the content manually.)`,
-                timestamp: Date.now()
-            };
+            // Show progress while fetching
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Fetching URL content...',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ increment: 30, message: 'Connecting...' });
 
-            this.messages.push(contextMessage);
+                try {
+                    // Fetch URL content
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': 'FlowCode-VSCode-Extension/1.0'
+                        },
+                        // 10 second timeout
+                        signal: AbortSignal.timeout(10000)
+                    });
+
+                    progress.report({ increment: 50, message: 'Reading content...' });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const contentType = response.headers.get('content-type') || '';
+                    let content: string;
+
+                    if (contentType.includes('application/json')) {
+                        const jsonData = await response.json();
+                        content = JSON.stringify(jsonData, null, 2);
+                    } else {
+                        content = await response.text();
+                    }
+
+                    progress.report({ increment: 20, message: 'Processing...' });
+
+                    // Limit content size to prevent overwhelming the chat
+                    const maxLength = 10000;
+                    if (content.length > maxLength) {
+                        content = content.substring(0, maxLength) + '\n\n... (content truncated due to length)';
+                    }
+
+                    // Create context message with fetched content
+                    const contextMessage: ChatMessage = {
+                        id: this.generateMessageId(),
+                        type: 'system',
+                        content: `🌐 **URL Content Added**: ${url}\n\n**Content Type**: ${contentType}\n**Size**: ${content.length} characters\n\n---\n\n${content}`,
+                        timestamp: Date.now(),
+                        metadata: {
+                            files: [url],
+                            contextQuality: 85,
+                            compressionApplied: content.length > maxLength
+                        }
+                    };
+
+                    this.messages.push(contextMessage);
+
+                } catch (fetchError) {
+                    const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+
+                    // Create error message with helpful suggestions
+                    const contextMessage: ChatMessage = {
+                        id: this.generateMessageId(),
+                        type: 'system',
+                        content: `🌐 **URL Fetch Failed**: ${url}\n\n**Error**: ${errorMessage}\n\n**Suggestions**:\n- Check if the URL is accessible\n- Verify your internet connection\n- Try a different URL\n- Copy and paste the content manually if needed`,
+                        timestamp: Date.now(),
+                        metadata: {
+                            files: [url],
+                            error: true,
+                            contextQuality: 0
+                        }
+                    };
+
+                    this.messages.push(contextMessage);
+                }
+            });
+
             await this.updateWebviewContent();
 
         } catch (error) {
-            throw new Error(`Failed to add URL context: ${(error as Error).message}`);
+            this.contextLogger.error('Failed to add URL context', error as Error);
+            await this.addSystemMessage(`Failed to add URL context: ${(error as Error).message}`);
         }
     }
 

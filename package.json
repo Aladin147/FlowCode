@@ -67,15 +67,10 @@
           "default": "openai",
           "description": "AI service provider"
         },
-        "flowcode.ai.model": {
-          "type": "string",
-          "default": "gpt-4",
-          "description": "AI model to use"
-        },
         "flowcode.ai.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key for the AI service (stored securely)"
+          "description": "API key for the AI service (stored securely - deprecated, use secure storage)"
         },
         "flowcode.ai.maxTokens": {
           "type": "number",
@@ -87,102 +82,60 @@
           "default": "",
           "description": "Custom API endpoint for OpenAI-compatible services (e.g., DeepSeek)"
         },
-        "flowcode.security.enableAuditing": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable security auditing"
-        },
-        "flowcode.security.auditLevel": {
-          "type": "string",
-          "enum": [
-            "basic",
-            "standard",
-            "comprehensive"
-          ],
-          "default": "standard",
-          "description": "Security audit level"
-        },
-        "flowcode.security.excludePatterns": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "node_modules/**",
-            "*.test.js",
-            "test/**"
-          ],
-          "description": "Patterns to exclude from security auditing"
-        },
-        "flowcode.performance.enableOptimization": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable performance optimization"
-        },
         "flowcode.performance.memoryThreshold": {
           "type": "number",
           "default": 200,
+          "minimum": 50,
+          "maximum": 1000,
           "description": "Memory usage threshold (MB) for triggering optimization"
         },
         "flowcode.performance.startupTimeThreshold": {
           "type": "number",
           "default": 2000,
+          "minimum": 500,
+          "maximum": 10000,
           "description": "Startup time threshold (ms) for performance warnings"
         },
-        "flowcode.performance.enableAutoOptimization": {
+        "flowcode.performance.enableGarbageCollection": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic performance optimization"
+          "description": "Enable automatic garbage collection"
         },
-        "flowcode.userExperience.enableQuickActions": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable quick actions menu"
+        "flowcode.performance.gcInterval": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 60000,
+          "maximum": 1800000,
+          "description": "Garbage collection interval (milliseconds)"
         },
-        "flowcode.userExperience.enableStatusBarIndicators": {
+        "flowcode.performance.enableMemoryMonitoring": {
           "type": "boolean",
           "default": true,
-          "description": "Enable status bar indicators"
+          "description": "Enable memory usage monitoring"
         },
-        "flowcode.userExperience.enableSmartNotifications": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable smart notifications"
+        "flowcode.performance.cacheCleanupInterval": {
+          "type": "number",
+          "default": 600000,
+          "minimum": 60000,
+          "maximum": 3600000,
+          "description": "Cache cleanup interval (milliseconds)"
         },
-        "flowcode.userExperience.enableContextualHelp": {
+        "flowcode.performance.maxCacheSize": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 500,
+          "description": "Maximum cache size per cache (MB)"
+        },
+        "flowcode.performance.enableLazyLoading": {
           "type": "boolean",
           "default": true,
-          "description": "Enable contextual help and tooltips"
+          "description": "Enable lazy loading of services"
         },
         "flowcode.telemetry.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable telemetry collection (opt-in only)"
-        },
-        "flowcode.telemetry.collectUsageData": {
-          "type": "boolean",
-          "default": true,
-          "description": "Collect anonymous usage data"
-        },
-        "flowcode.telemetry.collectPerformanceData": {
-          "type": "boolean",
-          "default": true,
-          "description": "Collect performance metrics"
-        },
-        "flowcode.telemetry.collectErrorReports": {
-          "type": "boolean",
-          "default": true,
-          "description": "Collect error reports"
-        },
-        "flowcode.telemetry.privacyLevel": {
-          "type": "string",
-          "enum": [
-            "minimal",
-            "standard",
-            "detailed"
-          ],
-          "default": "standard",
-          "description": "Privacy level for telemetry collection"
+          "description": "Enable telemetry collection (opt-in only, currently non-functional)"
         },
         "flowcode.gitHooks.enablePreCommit": {
           "type": "boolean",
@@ -193,22 +146,6 @@
           "type": "boolean",
           "default": true,
           "description": "Enable pre-push git hook"
-        },
-        "flowcode.logging.level": {
-          "type": "string",
-          "enum": [
-            "debug",
-            "info",
-            "warn",
-            "error"
-          ],
-          "default": "info",
-          "description": "Logging level"
-        },
-        "flowcode.maxTokens": {
-          "type": "number",
-          "default": 2000,
-          "description": "Maximum tokens for AI responses"
         },
         "flowcode.enableCompanionGuard": {
           "type": "boolean",
@@ -244,22 +181,16 @@
         "flowcode.agent.executionTimeout": {
           "type": "number",
           "default": 300000,
+          "minimum": 30000,
+          "maximum": 1800000,
           "description": "Maximum execution time for autonomous tasks (milliseconds)"
         },
         "flowcode.agent.maxRetryAttempts": {
           "type": "number",
           "default": 3,
+          "minimum": 0,
+          "maximum": 10,
           "description": "Maximum retry attempts for failed steps"
-        },
-        "flowcode.agent.enableLearning": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable agent learning from user feedback and patterns"
-        },
-        "flowcode.agent.adaptiveBehavior": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable adaptive behavior based on user preferences"
         },
         "flowcode.agent.notificationLevel": {
           "type": "string",
@@ -274,6 +205,8 @@
         "flowcode.agent.approvalTimeout": {
           "type": "number",
           "default": 300000,
+          "minimum": 30000,
+          "maximum": 1800000,
           "description": "Timeout for approval requests (milliseconds)"
         },
         "flowcode.agent.enableProgressDisplay": {
@@ -351,6 +284,48 @@
         "icon": "$(check)"
       },
       {
+        "command": "flowcode.test.minimal",
+        "title": "Minimal Test",
+        "category": "FlowCode Test",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "flowcode.diagnostic.test",
+        "title": "Diagnostic Test",
+        "category": "FlowCode Diagnostic",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "flowcode.diagnostic.webview",
+        "title": "Diagnostic Webview",
+        "category": "FlowCode Diagnostic",
+        "icon": "$(browser)"
+      },
+      {
+        "command": "flowcode.investigation.basic",
+        "title": "Investigation: Basic Test",
+        "category": "FlowCode Investigation",
+        "icon": "$(search)"
+      },
+      {
+        "command": "flowcode.diagnostic.param",
+        "title": "Diagnostic: Parameter Test",
+        "category": "FlowCode Diagnostic",
+        "icon": "$(symbol-parameter)"
+      },
+      {
+        "command": "flowcode.diagnostic.async",
+        "title": "Diagnostic: Async Test",
+        "category": "FlowCode Diagnostic",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "flowcode.diagnostic.report",
+        "title": "Diagnostic: Generate Report",
+        "category": "FlowCode Diagnostic",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "flowcode.forceShowChat",
         "title": "Force Show Chat (Debug)",
         "category": "FlowCode",
@@ -369,22 +344,10 @@
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "flowcode.generateCode",
-        "title": "Generate Code",
-        "category": "FlowCode",
-        "icon": "$(code)"
-      },
-      {
         "command": "flowcode.toggleSmartAutocomplete",
         "title": "Toggle Smart Autocomplete",
         "category": "FlowCode",
         "icon": "$(lightbulb)"
-      },
-      {
-        "command": "flowcode.analyzeCode",
-        "title": "Analyze Code",
-        "category": "FlowCode",
-        "icon": "$(search)"
       },
       {
         "command": "flowcode.runSecurityAudit",
@@ -447,15 +410,16 @@
         "icon": "$(feedback)"
       },
       {
+        "command": "flowcode.runChatDiagnostics",
+        "title": "Run Chat Diagnostics",
+        "category": "FlowCode",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "flowcode.showMonitoringDashboard",
         "title": "Show Monitoring Dashboard",
         "category": "FlowCode",
         "icon": "$(dashboard)"
-      },
-      {
-        "command": "flowcode.configureApiKey",
-        "title": "Configure API Key",
-        "category": "FlowCode"
       },
       {
         "command": "flowcode.showSettings",
@@ -586,6 +550,7 @@
     "d3": "^7.9.0",
     "eslint": "^8.56.0",
     "ignore": "^5.3.1",
+    "node-fetch": "^3.3.2",
     "openai": "^5.10.0",
     "prebuild-install": "^7.1.3",
     "semgrep": "^0.0.1",
